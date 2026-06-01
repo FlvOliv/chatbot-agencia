@@ -50,7 +50,7 @@ class Settings(BaseSettings):
 
     # IA
     ai_primary: Literal["gemini", "groq", "claude", "openai", "gemma"] = Field(default="gemini")
-    ai_fallback: Literal["gemma", "none"] = Field(default="none")
+    ai_fallback: Literal["gemini", "groq", "auto", "none"] = Field(default="none")
     ollama_url: str = Field(default="http://localhost:11434")
     ollama_model: str = Field(default="gemma3")
 

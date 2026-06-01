@@ -66,3 +66,6 @@ docker-compose.override.yml
 # Celery
 celerybeat-schedule
 celerybeat.pid
+
+# Artefato de build (Python 3.14 asyncpg) - nao versionar
+buildlib.win-amd64-cpython-314asyncpgprotocol

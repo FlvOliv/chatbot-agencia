@@ -139,14 +139,56 @@ async def _ask_malu_groq(history: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 # Dispatcher público
 # ---------------------------------------------------------------------------
-def active_model_name() -> str:
-    """Nome do modelo atualmente ativo (para logs e telemetria)."""
-    provider = settings.ai_primary
+def _model_name(provider: str) -> str:
+    """Nome do modelo de um provider específico."""
     if provider == "gemini":
         return settings.gemini_model
     if provider == "groq":
         return settings.groq_model
     return provider
+
+
+def active_model_name() -> str:
+    """Nome do modelo atualmente ativo (para logs e telemetria)."""
+    return _model_name(settings.ai_primary)
+
+
+def _provider_available(provider: str) -> bool:
+    """True se o provider tem credencial configurada."""
+    if provider == "gemini":
+        return bool(settings.gemini_api_key)
+    if provider == "groq":
+        return bool(settings.groq_api_key)
+    return False
+
+
+def _resolve_fallback(primary: str) -> str | None:
+    """Decide qual provider de reserva usar quando o primário falha.
+
+    AI_FALLBACK:
+        none   → sem fallback
+        auto   → usa o "outro" provider (gemini<->groq), se tiver chave
+        gemini → força fallback no Gemini
+        groq   → força fallback no Groq
+    """
+    fb = settings.ai_fallback
+    if fb == "none":
+        return None
+    if fb == "auto":
+        other = "groq" if primary == "gemini" else "gemini"
+        return other if _provider_available(other) else None
+    if fb != primary and _provider_available(fb):
+        return fb
+    return None
+
+
+async def _ask_provider(provider: str, history: list[dict]) -> str:
+    """Chama um provider específico pelo nome."""
+    if provider == "gemini":
+        return await _ask_malu_gemini(history)
+    if provider == "groq":
+        return await _ask_malu_groq(history)
+    raise ValueError(f"provider não suportado: {provider}")
 
 
 async def ask_malu(history: list[dict]) -> str:
@@ -176,19 +218,39 @@ async def ask_malu(history: list[dict]) -> str:
 
 
 async def route_and_ask(history: list[dict]) -> tuple[str, str]:
-    """Router principal — tenta o provider ativo; em falha retorna erro suave.
+    """Router principal — tenta o provider ativo e, em falha, o de reserva.
+
+    A ordem é: AI_PRIMARY primeiro; se ele falhar ou vier vazio (ex.: limite
+    de quota 429 do Gemini), tenta automaticamente o provider de AI_FALLBACK.
 
     Returns:
         (resposta, modelo_usado)
-        modelo_usado ∈ {nome do modelo configurado, "error"}.
+        modelo_usado ∈ {nome do modelo que respondeu, "error"}.
     """
-    try:
-        text = await ask_malu(history)
-        if text:
-            return text, active_model_name()
-        logger.warning("%s returned empty response", settings.ai_primary)
-    except Exception:
-        logger.exception("%s call failed", settings.ai_primary)
+    if not history:
+        raise ValueError("history vazio")
+
+    primary = settings.ai_primary
+    providers = [primary]
+    fallback = _resolve_fallback(primary)
+    if fallback:
+        providers.append(fallback)
+
+    for i, provider in enumerate(providers):
+        try:
+            text = await _ask_provider(provider, history)
+            if text:
+                if i > 0:
+                    logger.warning(
+                        "fallback acionado: %s assumiu após falha do primário (%s)",
+                        provider,
+                        primary,
+                    )
+                return text, _model_name(provider)
+            logger.warning("%s retornou resposta vazia", provider)
+        except Exception:
+            logger.exception("%s call failed", provider)
+            # segue para o próximo provider (fallback), se houver
 
     return (
         "Tive um probleminha técnico aqui agora. Pode me mandar de novo daqui a pouco?",

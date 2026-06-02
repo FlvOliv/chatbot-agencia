@@ -1,7 +1,7 @@
 # Malu Bot — Lu Milhas & Viagens
 
 Assistente virtual de atendimento nível 1 da agência **Lu Milhas & Viagens**.
-Atende clientes via WhatsApp, coleta informações de viagem e gera um briefing estruturado para a Luciana (atendente humana) fechar a cotação.
+Atende clientes via WhatsApp, coleta informações de viagem e gera um briefing estruturado para a Lu (atendente humana) fechar a cotação.
 
 - Integração oficial via **Meta WhatsApp Cloud API** (sem risco de banimento)
 - **Arquitetura multi-provider de IA** com switch dinâmico via `.env`:
@@ -116,7 +116,7 @@ Copie a URL `https://XXXX.ngrok-free.dev` — você vai colar no Meta Developer 
 6. Salva resposta no Redis + envia ao cliente via Meta API
 7. Se a resposta contém "## Resumo da Solicitação":
    - Salva lead no Postgres
-   - Notifica Luciana via WhatsApp
+   - Notifica Lu via WhatsApp
 ```
 
 ---
@@ -146,7 +146,8 @@ celery -A workers.tasks worker --loglevel=info --beat
 ```
 
 - `send_followup(phone)` — manda lembrete leve para clientes que pararam de responder
-- `daily_lead_report()` — roda às 8h diariamente; envia resumo dos leads do dia anterior para a Luciana
+- `send_reminder(phone, message)` — lembretes de inatividade encadeados (15min / 5h / 23h após a última resposta do cliente). Agendados automaticamente em `app/reminders.py` ao fim de cada turno e cancelados em `/sair` ou quando a Lu assume a conversa. Pulam o envio se a sessão Redis expirou ou se o estado já está `transferred`.
+- `daily_lead_report()` — roda às 8h diariamente; envia resumo dos leads do dia anterior para a Lu
 
 ---
 
@@ -184,7 +185,7 @@ chatbot-agencia/
 │   ├── session.py           # Histórico Redis
 │   ├── whatsapp.py          # Cliente Meta Cloud API
 │   ├── ai.py                # Router multi-provider (Gemini/Groq)
-│   ├── briefing.py          # Parser de briefing + notificação Luciana
+│   ├── briefing.py          # Parser de briefing + notificação Lu
 │   └── prompts/malu_v4.md   # System prompt da Malu (v4 com anti-injection)
 ├── workers/tasks.py         # Celery (follow-up + relatório diário)
 ├── alembic/                 # Migrations

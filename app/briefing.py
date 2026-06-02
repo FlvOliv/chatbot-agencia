@@ -1,4 +1,4 @@
-"""Extração de briefing + notificação para Luciana.
+"""Extração de briefing + notificação para Lu.
 
 A Malu encerra a coleta gerando um bloco markdown iniciando por
 `## Resumo da Solicitação`. Este módulo isola o bloco, classifica a
@@ -43,6 +43,26 @@ _WHATSAPP_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Nome do cliente no briefing: **Nome do cliente:** Maria Silva
+_NAME_RE = re.compile(
+    r"\*\*Nome do cliente:\*\*[ \t]*\n?[ \t]*([^\n*]+)",
+    re.IGNORECASE,
+)
+
+# Valores que não devem ser tratados como nome real (placeholders da IA)
+_NAME_PLACEHOLDERS = {
+    "",
+    "n/a",
+    "n/d",
+    "não informado",
+    "nao informado",
+    "[aguardando você me informar]",
+    "[aguardando informacao]",
+    "[a confirmar]",
+    "—",
+    "-",
+}
+
 _VALID_TEMPS = {"frio", "morno", "quente", "urgente"}
 
 
@@ -74,6 +94,23 @@ def parse_lead_temp(briefing: str) -> str:
     return "morno"
 
 
+def extract_customer_name(briefing: str) -> str | None:
+    """Extrai o nome do cliente do briefing.
+
+    Retorna None se o campo estiver ausente ou for um placeholder
+    (ex.: "[Aguardando você me informar]").
+    """
+    if not briefing:
+        return None
+    m = _NAME_RE.search(briefing)
+    if not m:
+        return None
+    raw = m.group(1).strip()
+    if raw.lower() in _NAME_PLACEHOLDERS:
+        return None
+    return raw or None
+
+
 def parse_customer_whatsapp(briefing: str) -> str | None:
     """Extrai o número de WhatsApp do cliente do briefing.
 
@@ -100,7 +137,7 @@ def _format_phone_display(phone: str) -> str:
 
 
 async def notify_luciana(briefing: str, customer_phone: str) -> bool:
-    """Envia mensagem formatada para Luciana com o briefing do lead."""
+    """Envia mensagem formatada para Lu com o briefing do lead."""
     temp = parse_lead_temp(briefing).capitalize()
     display = _format_phone_display(customer_phone)
 
@@ -113,7 +150,35 @@ async def notify_luciana(briefing: str, customer_phone: str) -> bool:
 
     ok = await send_message(settings.luciana_phone, body)
     if not ok:
-        logger.error("falha ao notificar Luciana sobre lead %s", customer_phone)
+        logger.error("falha ao notificar Lu sobre lead %s", customer_phone)
+    return ok
+
+
+async def notify_luciana_returning_client(
+    customer_phone: str,
+    customer_name: str | None,
+) -> bool:
+    """Alerta a Lu de que um cliente com reserva existente quer atendimento.
+
+    Diferente do `notify_luciana` (lead novo), esta mensagem sinaliza que a
+    Malu transferiu a conversa sem chamar IA — Lu precisa assumir manualmente.
+    """
+    display = _format_phone_display(customer_phone)
+    name_part = f"*{customer_name}*" if customer_name else "Um cliente"
+
+    body = (
+        f"🔔 *Cliente com reserva quer atendimento*\n\n"
+        f"📱 {display}\n"
+        f"👤 {name_part}\n\n"
+        f"A Malu transferiu a conversa pra você. Quando puder, "
+        f"assume direto pelo WhatsApp."
+    )
+
+    ok = await send_message(settings.luciana_phone, body)
+    if not ok:
+        logger.error(
+            "falha ao notificar Lu sobre cliente retornante %s", customer_phone
+        )
     return ok
 
 

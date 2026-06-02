@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from app.briefing import extract_briefing, parse_customer_whatsapp, parse_lead_temp
+from app.briefing import (
+    extract_briefing,
+    extract_customer_name,
+    parse_customer_whatsapp,
+    parse_lead_temp,
+)
 
 
 BRIEFING_SAMPLE = """Perfeito! Já organizei suas informações.
@@ -68,3 +73,24 @@ def test_parse_customer_whatsapp_returns_none_when_absent() -> None:
 def test_parse_customer_whatsapp_value_on_next_line() -> None:
     briefing = "## Resumo da Solicitação\n**WhatsApp:**\n5511912345678\n"
     assert parse_customer_whatsapp(briefing) == "5511912345678"
+
+
+def test_extract_customer_name_finds_real_name() -> None:
+    assert extract_customer_name(BRIEFING_SAMPLE) == "Wana"
+
+
+def test_extract_customer_name_ignores_placeholders() -> None:
+    cases = [
+        "## Resumo\n**Nome do cliente:** [Aguardando você me informar]\n",
+        "## Resumo\n**Nome do cliente:** N/A\n",
+        "## Resumo\n**Nome do cliente:** Não informado\n",
+        "## Resumo\n**Nome do cliente:** —\n",
+    ]
+    for briefing in cases:
+        assert extract_customer_name(briefing) is None, f"falhou em: {briefing!r}"
+
+
+def test_extract_customer_name_returns_none_when_field_missing() -> None:
+    briefing = "## Resumo\n**Destino:** Cancún\n"
+    assert extract_customer_name(briefing) is None
+    assert extract_customer_name("") is None

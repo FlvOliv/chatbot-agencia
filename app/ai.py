@@ -6,6 +6,11 @@ A escolha do provider é feita em runtime via `settings.ai_primary`:
 
 Trocar de provider é só mudar a variável no `.env` e reiniciar a aplicação.
 O system prompt da Malu (`app/prompts/malu_v4.md`) é o mesmo nos dois casos.
+
+Customer context:
+    `route_and_ask` aceita opcionalmente um `customer_context` (dict) que é
+    injetado dinamicamente no system prompt — útil pra passar o nome do
+    cliente capturado da Meta sem mexer no arquivo do prompt.
 """
 
 from __future__ import annotations
@@ -14,6 +19,7 @@ import asyncio
 import logging
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import google.generativeai as genai
 from groq import AsyncGroq
@@ -33,12 +39,48 @@ _MAX_TOKENS = 1024
 # ---------------------------------------------------------------------------
 @lru_cache(maxsize=1)
 def _load_system_prompt() -> str:
-    """Carrega o system prompt da Malu (cached em memória)."""
+    """Carrega o system prompt base da Malu (cached em memória)."""
     if not PROMPT_PATH.exists():
         raise FileNotFoundError(
             f"system prompt da Malu não encontrado em {PROMPT_PATH}"
         )
     return PROMPT_PATH.read_text(encoding="utf-8")
+
+
+def _build_system_prompt(customer_context: dict[str, Any] | None) -> str:
+    """Monta o system prompt da chamada atual — base + contexto dinâmico.
+
+    `customer_context` aceita:
+        - "name": str → nome do cliente (do profile WhatsApp ou confirmado)
+        - "is_first_turn": bool → True na primeira mensagem da sessão
+    """
+    base = _load_system_prompt()
+    if not customer_context:
+        return base
+
+    extras: list[str] = []
+    name = customer_context.get("name")
+    if name:
+        is_first = bool(customer_context.get("is_first_turn"))
+        if is_first:
+            extras.append(
+                f"\n\n## Contexto do cliente nesta conversa\n"
+                f"O cliente se identifica no WhatsApp como **{name}**.\n"
+                f"Esta é a **primeira mensagem dele nesta sessão** — cumprimente-o "
+                f"chamando-o por **{name}** de forma natural, e já comece o fluxo "
+                f"de coleta no mesmo turno (não peça pra confirmar o nome de forma "
+                f"isolada; se ele preferir outro nome, ele vai te avisar)."
+            )
+        else:
+            extras.append(
+                f"\n\n## Contexto do cliente nesta conversa\n"
+                f"O cliente atende por **{name}**. Continue chamando-o pelo "
+                f"nome quando fizer sentido no fluxo natural."
+            )
+
+    if not extras:
+        return base
+    return base + "".join(extras)
 
 
 # ---------------------------------------------------------------------------
@@ -69,10 +111,9 @@ def _build_gemini_history(history: list[dict]) -> list[dict]:
     return out
 
 
-def _ask_malu_gemini_sync(history: list[dict]) -> str:
+def _ask_malu_gemini_sync(history: list[dict], system_prompt: str) -> str:
     """Chamada síncrona ao Gemini — wrappeada em to_thread no async caller."""
     _configure_gemini()
-    system_prompt = _load_system_prompt()
 
     model = genai.GenerativeModel(
         model_name=settings.gemini_model,
@@ -87,9 +128,9 @@ def _ask_malu_gemini_sync(history: list[dict]) -> str:
     return (getattr(response, "text", "") or "").strip()
 
 
-async def _ask_malu_gemini(history: list[dict]) -> str:
+async def _ask_malu_gemini(history: list[dict], system_prompt: str) -> str:
     """Adapter async do Gemini — usa to_thread (SDK é majoritariamente sync)."""
-    return await asyncio.to_thread(_ask_malu_gemini_sync, history)
+    return await asyncio.to_thread(_ask_malu_gemini_sync, history, system_prompt)
 
 
 # ---------------------------------------------------------------------------
@@ -103,11 +144,12 @@ def _groq_client() -> AsyncGroq:
     return AsyncGroq(api_key=settings.groq_api_key)
 
 
-def _build_openai_messages(history: list[dict]) -> list[dict]:
+def _build_openai_messages(
+    history: list[dict],
+    system_prompt: str,
+) -> list[dict]:
     """Formato OpenAI/Groq: system + alternância user/assistant."""
-    messages: list[dict] = [
-        {"role": "system", "content": _load_system_prompt()}
-    ]
+    messages: list[dict] = [{"role": "system", "content": system_prompt}]
     for m in history:
         role = m.get("role")
         content = m.get("content", "")
@@ -117,10 +159,10 @@ def _build_openai_messages(history: list[dict]) -> list[dict]:
     return messages
 
 
-async def _ask_malu_groq(history: list[dict]) -> str:
+async def _ask_malu_groq(history: list[dict], system_prompt: str) -> str:
     """Chama o Groq (cliente async nativo)."""
     client = _groq_client()
-    messages = _build_openai_messages(history)
+    messages = _build_openai_messages(history, system_prompt)
 
     response = await client.chat.completions.create(
         model=settings.groq_model,
@@ -182,22 +224,31 @@ def _resolve_fallback(primary: str) -> str | None:
     return None
 
 
-async def _ask_provider(provider: str, history: list[dict]) -> str:
+async def _ask_provider(
+    provider: str,
+    history: list[dict],
+    system_prompt: str,
+) -> str:
     """Chama um provider específico pelo nome."""
     if provider == "gemini":
-        return await _ask_malu_gemini(history)
+        return await _ask_malu_gemini(history, system_prompt)
     if provider == "groq":
-        return await _ask_malu_groq(history)
+        return await _ask_malu_groq(history, system_prompt)
     raise ValueError(f"provider não suportado: {provider}")
 
 
-async def ask_malu(history: list[dict]) -> str:
+async def ask_malu(
+    history: list[dict],
+    customer_context: dict[str, Any] | None = None,
+) -> str:
     """Chama o provider de IA configurado em `AI_PRIMARY`.
 
     Args:
         history: lista de mensagens
             [{"role": "user"|"assistant", "content": "..."}]
             A última mensagem deve ser do usuário.
+        customer_context: dict opcional com `name`/`is_first_turn` injetado
+            no system prompt.
 
     Returns:
         Texto da resposta da Malu.
@@ -209,15 +260,15 @@ async def ask_malu(history: list[dict]) -> str:
     if not history:
         raise ValueError("history vazio")
 
+    system_prompt = _build_system_prompt(customer_context)
     provider = settings.ai_primary
-    if provider == "gemini":
-        return await _ask_malu_gemini(history)
-    if provider == "groq":
-        return await _ask_malu_groq(history)
-    raise ValueError(f"AI_PRIMARY não suportado neste build: {provider}")
+    return await _ask_provider(provider, history, system_prompt)
 
 
-async def route_and_ask(history: list[dict]) -> tuple[str, str]:
+async def route_and_ask(
+    history: list[dict],
+    customer_context: dict[str, Any] | None = None,
+) -> tuple[str, str]:
     """Router principal — tenta o provider ativo e, em falha, o de reserva.
 
     A ordem é: AI_PRIMARY primeiro; se ele falhar ou vier vazio (ex.: limite
@@ -230,6 +281,7 @@ async def route_and_ask(history: list[dict]) -> tuple[str, str]:
     if not history:
         raise ValueError("history vazio")
 
+    system_prompt = _build_system_prompt(customer_context)
     primary = settings.ai_primary
     providers = [primary]
     fallback = _resolve_fallback(primary)
@@ -238,7 +290,7 @@ async def route_and_ask(history: list[dict]) -> tuple[str, str]:
 
     for i, provider in enumerate(providers):
         try:
-            text = await _ask_provider(provider, history)
+            text = await _ask_provider(provider, history, system_prompt)
             if text:
                 if i > 0:
                     logger.warning(

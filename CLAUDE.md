@@ -9,7 +9,7 @@
 
 **Malu** é uma assistente virtual de atendimento nível 1 da agência **Lu Milhas & Viagens**.
 
-Ela funciona via **WhatsApp**, recebe clientes, coleta informações de viagem e gera um briefing estruturado para a Luciana (atendente humana) fechar a cotação.
+Ela funciona via **WhatsApp**, recebe clientes, coleta informações de viagem e gera um briefing estruturado para a Lu (atendente humana) fechar a cotação.
 
 - Integração: **Meta WhatsApp Cloud API** (oficial — sem risco de ban)
 - IA principal: **Claude claude-sonnet-4-5** via API Anthropic
@@ -49,7 +49,7 @@ malu-bot/
 │   ├── whatsapp.py          # Cliente Meta Cloud API (send/receive)
 │   ├── ai.py                # Router de modelos (Claude / Gemma)
 │   ├── session.py           # Redis — histórico de conversa
-│   ├── briefing.py          # Parser de briefing + notificação Luciana
+│   ├── briefing.py          # Parser de briefing + notificação Lu
 │   ├── models.py            # SQLAlchemy ORM (Lead, Conversation)
 │   ├── database.py          # Engine async + SessionLocal
 │   ├── config.py            # Pydantic Settings (lê .env)
@@ -164,7 +164,7 @@ CREATE TABLE conversations (
 8. Adiciona resposta ao histórico → salva no Redis
 9. Envia resposta via Meta API
 10. Verifica se resposta contém "## Resumo da Solicitação"
-11. Se sim → salva lead no PostgreSQL + notifica Luciana via WhatsApp
+11. Se sim → salva lead no PostgreSQL + notifica Lu via WhatsApp
 ```
 
 ---
@@ -177,7 +177,7 @@ Ele é injetado como `system` message em toda chamada à IA.
 
 ---
 
-## Convenção de notificação para Luciana
+## Convenção de notificação para Lu
 
 Quando a Malu gerar um briefing completo (bloco `## Resumo da Solicitação de Cotação`),
 o sistema deve:

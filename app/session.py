@@ -89,3 +89,47 @@ async def clear_history(phone: str) -> None:
         await client.delete(_key(phone))
     except Exception:
         logger.exception("redis clear_history failed for %s", phone)
+
+
+# ---------------------------------------------------------------------------
+# Estado de fluxo da sessão — máquina de estados leve
+# ---------------------------------------------------------------------------
+# Estados possíveis:
+#   None                 → fluxo normal (default)
+#   "awaiting_intent"    → cliente com reserva ativa precisa escolher
+#                          1) atendimento sobre reserva  2) nova viagem
+#   "transferred"        → Lu assumiu a conversa, Malu fica em silêncio
+STATE_AWAITING_INTENT = "awaiting_intent"
+STATE_TRANSFERRED = "transferred"
+
+# TTL do estado igual ao da sessão — eles caem juntos quando o cliente some
+def _state_key(phone: str) -> str:
+    return f"malu:state:{phone}"
+
+
+async def get_state(phone: str) -> str | None:
+    """Lê o estado de fluxo atual da sessão (None = fluxo normal)."""
+    client = get_redis()
+    try:
+        return await client.get(_state_key(phone))
+    except Exception:
+        logger.exception("redis get_state failed for %s", phone)
+        return None
+
+
+async def set_state(phone: str, state: str) -> None:
+    """Persiste o estado de fluxo (TTL igual ao da sessão)."""
+    client = get_redis()
+    try:
+        await client.set(_state_key(phone), state, ex=settings.session_ttl_seconds)
+    except Exception:
+        logger.exception("redis set_state failed for %s", phone)
+
+
+async def clear_state(phone: str) -> None:
+    """Remove o estado de fluxo (volta ao default)."""
+    client = get_redis()
+    try:
+        await client.delete(_state_key(phone))
+    except Exception:
+        logger.exception("redis clear_state failed for %s", phone)

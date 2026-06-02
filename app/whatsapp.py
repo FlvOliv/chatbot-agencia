@@ -121,8 +121,14 @@ async def send_template(to: str, template: str, params: list[str]) -> bool:
         return False
 
 
-def parse_incoming(data: dict[str, Any]) -> tuple[str, str] | None:
-    """Extrai `(phone, text)` do payload do webhook.
+def parse_incoming(
+    data: dict[str, Any],
+) -> tuple[str, str, str | None] | None:
+    """Extrai `(phone, text, profile_name)` do payload do webhook.
+
+    `profile_name` é o nome do perfil WhatsApp do cliente (vem de
+    `contacts[0].profile.name`). Pode ser `None` se o cliente não tem nome
+    configurado ou se a Meta não enviou.
 
     Retorna `None` para qualquer payload que não seja mensagem de texto
     (status updates, reações, áudio, mídia, etc.).
@@ -147,7 +153,17 @@ def parse_incoming(data: dict[str, Any]) -> tuple[str, str] | None:
         text = msg.get("text", {}).get("body")
         if not phone or not text:
             return None
-        return phone, text
+
+        # profile_name vem de contacts[0].profile.name (pode estar ausente)
+        contacts = value.get("contacts", []) or []
+        profile_name: str | None = None
+        if contacts:
+            profile = contacts[0].get("profile") or {}
+            raw = profile.get("name")
+            if isinstance(raw, str) and raw.strip():
+                profile_name = raw.strip()
+
+        return phone, text, profile_name
     except (KeyError, IndexError, AttributeError, TypeError):
         logger.exception("parse_incoming failed")
         return None

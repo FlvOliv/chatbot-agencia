@@ -22,11 +22,42 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from app import __version__
 from app.ai import route_and_ask
-from app.briefing import extract_briefing, notify_luciana, parse_lead_temp, save_lead
+from app.briefing import (
+    extract_briefing,
+    extract_customer_name,
+    notify_luciana,
+    notify_luciana_returning_client,
+    parse_lead_temp,
+    save_lead,
+)
+from app.clientes import get_or_create_cliente, update_preferred_name
+from app.commands import (
+    EXIT_REPLY,
+    INTENT_NOVA,
+    INTENT_RESERVA,
+    intent_question,
+    intent_unclear_reply,
+    is_exit_command,
+    parse_intent,
+    transferred_reply,
+)
 from app.config import settings
 from app.database import SessionLocal, dispose_engine
 from app.models import Conversation
-from app.session import close_redis, get_history, get_redis, save_history
+from app.reminders import cancel_reminders, schedule_reminders
+from app.reservas import has_reserva_ativa
+from app.session import (
+    STATE_AWAITING_INTENT,
+    STATE_TRANSFERRED,
+    clear_history,
+    clear_state,
+    close_redis,
+    get_history,
+    get_redis,
+    get_state,
+    save_history,
+    set_state,
+)
 from app.whatsapp import parse_incoming, send_message
 
 logging.basicConfig(
@@ -139,26 +170,141 @@ async def webhook_receive(
 # Pipeline principal
 # ---------------------------------------------------------------------------
 async def handle_message(data: dict[str, Any]) -> None:
-    """Executa o fluxo completo descrito no CLAUDE.md."""
+    """Executa o fluxo completo da Malu (descrito no CLAUDE.md).
+
+    Ordem de decisão (early-returns no topo, IA por último):
+
+        0. Mensagem inválida ou tipo ignorado → drop.
+        1. Comando /sair → encerra sessão, sai.
+        2. Estado "transferred" (Lu já assumiu) → silêncio total, sai.
+        3. Identifica/cria o cliente no banco.
+        4. Estado "awaiting_intent" → parse 1/2:
+           a. "1" → notifica Lu, marca transferred, sai.
+           b. "2" → limpa estado, segue pra IA.
+           c. ambíguo → repete a pergunta, sai.
+        5. Primeira mensagem da sessão E cliente tem reserva ativa →
+           manda pergunta de intent (1/2), marca awaiting_intent, sai.
+        6. Caminho normal: histórico → IA → resposta → briefing.
+    """
     parsed = parse_incoming(data)
     if parsed is None:
         return
-    phone, user_text = parsed
+    phone, user_text, profile_name = parsed
 
-    logger.info("incoming from %s: %s", phone, user_text[:120])
+    logger.info(
+        "incoming from %s (profile=%r): %s",
+        phone,
+        profile_name,
+        user_text[:120],
+    )
 
-    # 1) Histórico
+    # 1) Comando /sair (prioridade máxima — funciona em qualquer estado)
+    if is_exit_command(user_text):
+        logger.info("exit command from %s — closing session", phone)
+        await clear_history(phone)
+        await clear_state(phone)
+        await cancel_reminders(phone)
+        try:
+            await send_message(phone, EXIT_REPLY)
+        except Exception:
+            logger.exception("send EXIT_REPLY failed for %s", phone)
+        asyncio.create_task(
+            _persist_conversation(phone, user_text, EXIT_REPLY, "command:exit")
+        )
+        return
+
+    # 2) Cliente já transferido pra Lu — Malu fica em silêncio
+    state = await get_state(phone)
+    if state == STATE_TRANSFERRED:
+        logger.info("skipping %s — conversation transferred to Lu", phone)
+        # Audit log mesmo assim (Lu pode querer ver tudo depois)
+        asyncio.create_task(
+            _persist_conversation(phone, user_text, "", "transferred")
+        )
+        return
+
+    # 3) Identifica/atualiza o cliente (não bloqueia em falha de banco)
+    customer_name: str | None = None
+    try:
+        async with SessionLocal() as db:
+            cliente = await get_or_create_cliente(phone, profile_name, db)
+            await db.commit()
+            customer_name = cliente.display_name
+    except Exception:
+        logger.exception("get_or_create_cliente failed for %s", phone)
+        customer_name = profile_name
+
+    # 4) Em meio de awaiting_intent: parse e bifurca
+    if state == STATE_AWAITING_INTENT:
+        intent = parse_intent(user_text)
+        if intent == INTENT_RESERVA:
+            logger.info("intent=reserva from %s — transferring to Lu", phone)
+            reply = transferred_reply(customer_name)
+            await set_state(phone, STATE_TRANSFERRED)
+            await cancel_reminders(phone)
+            try:
+                await send_message(phone, reply)
+            except Exception:
+                logger.exception("send transferred_reply failed for %s", phone)
+            try:
+                await notify_luciana_returning_client(phone, customer_name)
+            except Exception:
+                logger.exception("notify_luciana_returning_client failed for %s", phone)
+            asyncio.create_task(
+                _persist_conversation(phone, user_text, reply, "flow:transferred")
+            )
+            return
+
+        if intent == INTENT_NOVA:
+            logger.info("intent=nova from %s — proceeding to AI flow", phone)
+            await clear_state(phone)
+            # Cai pro fluxo normal abaixo (sem return)
+        else:
+            # Ambíguo — pede pra escolher de novo, mantém o estado
+            logger.info("intent=ambiguous from %s — re-prompting", phone)
+            reply = intent_unclear_reply()
+            try:
+                await send_message(phone, reply)
+            except Exception:
+                logger.exception("send intent_unclear_reply failed for %s", phone)
+            asyncio.create_task(
+                _persist_conversation(phone, user_text, reply, "flow:intent-unclear")
+            )
+            return
+
+    # 5) Primeira mensagem da sessão + cliente com reserva ativa → pergunta intent
     history = await get_history(phone)
-    history.append({"role": "user", "content": user_text})
+    is_first_turn = len(history) == 0
 
-    # 2) IA
-    reply, model_used = await route_and_ask(history)
+    if is_first_turn and state != STATE_AWAITING_INTENT:
+        try:
+            async with SessionLocal() as db:
+                has_active = await has_reserva_ativa(phone, db)
+        except Exception:
+            logger.exception("has_reserva_ativa check failed for %s", phone)
+            has_active = False  # fallback: não trava o cliente
+
+        if has_active:
+            logger.info("first turn + reserva ativa for %s — asking intent", phone)
+            reply = intent_question(customer_name)
+            await set_state(phone, STATE_AWAITING_INTENT)
+            try:
+                await send_message(phone, reply)
+            except Exception:
+                logger.exception("send intent_question failed for %s", phone)
+            asyncio.create_task(
+                _persist_conversation(phone, user_text, reply, "flow:intent-question")
+            )
+            return
+
+    # 6) Fluxo normal — IA + briefing
+    history.append({"role": "user", "content": user_text})
+    customer_context = {"name": customer_name, "is_first_turn": is_first_turn}
+    reply, model_used = await route_and_ask(history, customer_context=customer_context)
     history.append({"role": "assistant", "content": reply})
 
-    # 3) Persiste histórico Redis (best effort)
     await save_history(phone, history)
 
-    # 4) Log de auditoria + envio WhatsApp + briefing — em paralelo onde possível
     send_task = asyncio.create_task(send_message(phone, reply))
     audit_task = asyncio.create_task(_persist_conversation(phone, user_text, reply, model_used))
 
@@ -168,6 +314,9 @@ async def handle_message(data: dict[str, Any]) -> None:
         try:
             async with SessionLocal() as db:
                 await save_lead(phone, briefing, temp, db)
+                briefing_name = extract_customer_name(briefing)
+                if briefing_name:
+                    await update_preferred_name(phone, briefing_name, db)
                 await db.commit()
         except Exception:
             logger.exception("save_lead failed for %s", phone)
@@ -177,6 +326,10 @@ async def handle_message(data: dict[str, Any]) -> None:
             logger.exception("notify_luciana failed for %s", phone)
 
     await asyncio.gather(send_task, audit_task, return_exceptions=True)
+
+    # Reagenda lembretes de inatividade a partir do momento atual.
+    # cancel + reschedule é idempotente (vide app/reminders.py).
+    await schedule_reminders(phone)
 
 
 async def _persist_conversation(

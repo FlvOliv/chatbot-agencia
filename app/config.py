@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     redis_url: str = Field(default="redis://localhost:6379/0")
 
     # Negócio
-    luciana_phone: str = Field(..., description="Telefone Luciana (E.164 sem +)")
+    luciana_phone: str = Field(..., description="Telefone Lu (E.164 sem +)")
     business_hours_start: int = Field(default=9)
     business_hours_end: int = Field(default=18)
 

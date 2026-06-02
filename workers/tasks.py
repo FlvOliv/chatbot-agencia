@@ -1,4 +1,4 @@
-"""Celery tasks — follow-up de leads e relatório diário para Luciana.
+"""Celery tasks — follow-up de leads e relatório diário para Lu.
 
 Para subir o worker em dev:
     celery -A workers.tasks worker --loglevel=info --beat
@@ -21,6 +21,7 @@ from app.briefing import _format_phone_display  # type: ignore[attr-defined]
 from app.config import settings
 from app.database import SessionLocal
 from app.models import Lead
+from app.session import STATE_TRANSFERRED, get_history, get_state
 from app.whatsapp import send_message
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,36 @@ def send_followup(self, phone: str) -> dict[str, Any]:  # noqa: ARG001
     except Exception as exc:
         logger.exception("send_followup failed for %s", phone)
         raise self.retry(exc=exc, countdown=60)
+
+
+@celery_app.task(name="malu.send_reminder", bind=True, max_retries=2)
+def send_reminder(self, phone: str, message: str) -> dict[str, Any]:  # noqa: ARG001
+    """Envia lembrete de inatividade — só se a sessão ainda estiver viva.
+
+    Skips:
+        - state == STATE_TRANSFERRED  (Lu já assumiu a conversa)
+        - get_history vazio           (sessão Redis expirou — cliente sumiu)
+    """
+    try:
+        return _run(_send_reminder_async(phone, message))
+    except Exception as exc:
+        logger.exception("send_reminder failed for %s", phone)
+        raise self.retry(exc=exc, countdown=60)
+
+
+async def _send_reminder_async(phone: str, message: str) -> dict[str, Any]:
+    state = await get_state(phone)
+    if state == STATE_TRANSFERRED:
+        logger.info("reminder skipped for %s — transferred to Lu", phone)
+        return {"phone": phone, "sent": False, "skipped": "transferred"}
+
+    history = await get_history(phone)
+    if not history:
+        logger.info("reminder skipped for %s — session expired", phone)
+        return {"phone": phone, "sent": False, "skipped": "no_history"}
+
+    ok = await send_message(phone, message)
+    return {"phone": phone, "sent": ok}
 
 
 @celery_app.task(name="malu.daily_lead_report")
@@ -115,6 +146,7 @@ celery_app.conf.beat_schedule = {
 __all__ = [
     "celery_app",
     "send_followup",
+    "send_reminder",
     "daily_lead_report",
     "_format_phone_display",
 ]

@@ -71,7 +71,7 @@ async def run() -> None:
         briefing = extract_briefing(reply)
         if briefing:
             print("█" * 64)
-            print("  BRIEFING PRONTO — é isto que a Luciana recebe no WhatsApp dela")
+            print("  BRIEFING PRONTO — é isto que a Lu recebe no WhatsApp dela")
             print("█" * 64)
             print(f"  Temperatura do lead: {parse_lead_temp(briefing)}\n")
             print(briefing)

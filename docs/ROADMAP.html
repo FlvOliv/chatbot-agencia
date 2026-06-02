@@ -1,0 +1,884 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Malu Bot — Roadmap &amp; Estado do Projeto</title>
+<style>
+  /* ===========================================================
+     Design tokens — paleta neutra alinhada ao CRM (zinc/slate)
+     =========================================================== */
+  :root {
+    --bg: #fafafa;
+    --surface: #ffffff;
+    --border: #e4e4e7;
+    --border-strong: #d4d4d8;
+    --ink: #18181b;
+    --ink-mute: #52525b;
+    --ink-soft: #71717a;
+    --accent: #18181b;
+    --accent-soft: #f4f4f5;
+    --ok: #15803d;
+    --ok-bg: #f0fdf4;
+    --warn: #b45309;
+    --warn-bg: #fffbeb;
+    --pending: #9ca3af;
+    --pending-bg: #f3f4f6;
+    --info: #0369a1;
+    --info-bg: #f0f9ff;
+    --danger: #b91c1c;
+    --danger-bg: #fef2f2;
+    --radius: 8px;
+    --radius-lg: 12px;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.04), 0 1px 1px rgba(0,0,0,.02);
+    --shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family:
+      "Geist", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+      Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Layout principal — coluna única, 760px max */
+  main {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 48px 32px 96px;
+  }
+
+  /* Header */
+  header.doc-header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 32px;
+    margin-bottom: 48px;
+  }
+
+  .eyebrow {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-soft);
+    font-weight: 500;
+    margin-bottom: 8px;
+  }
+
+  h1 {
+    font-size: 36px;
+    line-height: 1.15;
+    margin: 0 0 12px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .subtitle {
+    color: var(--ink-mute);
+    font-size: 17px;
+    margin: 0;
+    max-width: 56ch;
+  }
+
+  .meta-line {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    margin-top: 24px;
+    color: var(--ink-soft);
+    font-size: 13px;
+  }
+
+  .meta-line span strong {
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  /* Section */
+  section {
+    margin-bottom: 56px;
+  }
+
+  h2 {
+    font-size: 22px;
+    line-height: 1.3;
+    margin: 0 0 8px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  h3 {
+    font-size: 16px;
+    line-height: 1.4;
+    margin: 24px 0 8px;
+    font-weight: 600;
+  }
+
+  h2 + p.section-lede {
+    color: var(--ink-mute);
+    margin-top: 0;
+    margin-bottom: 24px;
+    max-width: 64ch;
+  }
+
+  p { margin: 0 0 16px; }
+
+  /* Cards / surfaces */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px 24px;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .card + .card { margin-top: 12px; }
+
+  /* Grid de cards */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  @media (max-width: 720px) {
+    .grid-2 { grid-template-columns: 1fr; }
+  }
+
+  /* Badges de status */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .badge::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.85;
+  }
+  .badge-ok      { color: var(--ok);      background: var(--ok-bg);      border-color: rgba(21,128,61,.18); }
+  .badge-warn    { color: var(--warn);    background: var(--warn-bg);    border-color: rgba(180,83,9,.18); }
+  .badge-pending { color: var(--ink-soft);background: var(--pending-bg); border-color: var(--border); }
+  .badge-info    { color: var(--info);    background: var(--info-bg);    border-color: rgba(3,105,161,.16); }
+  .badge-danger  { color: var(--danger);  background: var(--danger-bg);  border-color: rgba(185,28,28,.18); }
+
+  /* Tabela */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+  thead th {
+    text-align: left;
+    font-weight: 500;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    padding: 12px 16px;
+    background: #fafafa;
+    border-bottom: 1px solid var(--border);
+  }
+  tbody td {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tbody tr:first-child td { border-top: 0; }
+
+  /* Lista de bullets refinada */
+  ul.tight {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  ul.tight li {
+    padding: 8px 0;
+    border-bottom: 1px dashed var(--border);
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  ul.tight li:last-child { border-bottom: 0; }
+  ul.tight li .marker {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    margin-top: 2px;
+    border-radius: 50%;
+    border: 1px solid var(--border-strong);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: var(--ink-soft);
+    background: var(--surface);
+  }
+  ul.tight li.done .marker {
+    border-color: var(--ok);
+    background: var(--ok);
+    color: white;
+  }
+  ul.tight li.done .marker::after { content: "✓"; font-size: 11px; }
+  ul.tight li.doing .marker {
+    border-color: var(--warn);
+    background: var(--warn-bg);
+    color: var(--warn);
+  }
+  ul.tight li.doing .marker::after { content: "•"; font-size: 18px; line-height: 0; margin-bottom: 2px; }
+  ul.tight li.todo .marker::after { content: ""; }
+  ul.tight li.done { color: var(--ink-mute); }
+  ul.tight li.done .text { text-decoration: line-through; text-decoration-color: var(--border-strong); }
+
+  /* Código inline e blocos */
+  code {
+    font-family:
+      "Geist Mono", "JetBrains Mono", ui-monospace,
+      SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 13px;
+    background: var(--accent-soft);
+    color: var(--ink);
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+  pre {
+    background: #18181b;
+    color: #e4e4e7;
+    padding: 16px 20px;
+    border-radius: var(--radius);
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.55;
+    margin: 16px 0;
+  }
+  pre code {
+    background: transparent;
+    border: 0;
+    color: inherit;
+    padding: 0;
+  }
+
+  /* ASCII art diagrama */
+  .diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    font-family:
+      "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--ink);
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  /* Callouts */
+  .callout {
+    border-left: 3px solid var(--border-strong);
+    padding: 12px 16px;
+    margin: 16px 0;
+    color: var(--ink-mute);
+    background: #fafafa;
+    border-radius: 0 var(--radius) var(--radius) 0;
+  }
+  .callout strong { color: var(--ink); }
+  .callout.warn    { border-left-color: var(--warn);   background: var(--warn-bg); color: #78350f; }
+  .callout.warn strong { color: var(--warn); }
+  .callout.info    { border-left-color: var(--info);   background: var(--info-bg); color: #075985; }
+  .callout.info strong { color: var(--info); }
+  .callout.danger  { border-left-color: var(--danger); background: var(--danger-bg); color: #7f1d1d; }
+  .callout.danger strong { color: var(--danger); }
+
+  /* Numbers — KPIs */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin: 16px 0 24px;
+  }
+  @media (max-width: 720px) {
+    .kpi-row { grid-template-columns: repeat(2, 1fr); }
+  }
+  .kpi {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+  }
+  .kpi-value {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    line-height: 1.1;
+  }
+  .kpi-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    margin-top: 6px;
+  }
+
+  /* Timeline / roadmap */
+  .timeline {
+    position: relative;
+    padding-left: 28px;
+  }
+  .timeline::before {
+    content: "";
+    position: absolute;
+    left: 8px;
+    top: 8px;
+    bottom: 8px;
+    width: 1px;
+    background: var(--border-strong);
+  }
+  .timeline-item {
+    position: relative;
+    padding-bottom: 24px;
+  }
+  .timeline-item::before {
+    content: "";
+    position: absolute;
+    left: -25px;
+    top: 6px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 2px solid var(--border-strong);
+  }
+  .timeline-item.done::before {
+    background: var(--ok);
+    border-color: var(--ok);
+  }
+  .timeline-item.doing::before {
+    background: var(--warn);
+    border-color: var(--warn);
+    box-shadow: 0 0 0 4px var(--warn-bg);
+  }
+  .timeline-item h4 {
+    margin: 0 0 4px;
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .timeline-item p {
+    color: var(--ink-mute);
+    font-size: 14px;
+    margin: 0;
+  }
+
+  /* Footer */
+  footer {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    color: var(--ink-soft);
+    font-size: 13px;
+  }
+
+  /* Print */
+  @media print {
+    body { background: white; font-size: 11pt; }
+    main { padding: 0; max-width: none; }
+    .card, table, .diagram, pre, .kpi { box-shadow: none; break-inside: avoid; }
+    section { break-inside: avoid; }
+    h1 { font-size: 22pt; }
+    h2 { font-size: 14pt; }
+    a { color: var(--ink); text-decoration: underline; }
+  }
+
+  /* Links */
+  a {
+    color: var(--ink);
+    text-decoration: underline;
+    text-decoration-color: var(--border-strong);
+    text-underline-offset: 3px;
+  }
+  a:hover { text-decoration-color: var(--ink); }
+</style>
+</head>
+<body>
+<main>
+
+<!-- ================================ HEADER ================================ -->
+<header class="doc-header">
+  <div class="eyebrow">Documento interno · Estado &amp; Roadmap</div>
+  <h1>Malu Bot</h1>
+  <p class="subtitle">
+    Assistente virtual de WhatsApp da Lu Milhas &amp; Viagens. Coleta dados de viagem,
+    gera briefings estruturados e prepara o caminho pra Lu fechar a cotação. Acompanhado de um CRM web pra a Lu trabalhar.
+  </p>
+  <div class="meta-line">
+    <span><strong>Versão</strong> 2.0 (Sprint 1 + 2 entregues)</span>
+    <span><strong>Atualizado</strong> 02/06/2026</span>
+    <span><strong>Repo backend</strong> gustavomarcelloprf/chatbot-agencia</span>
+    <span><strong>Repo CRM (fork)</strong> gustavomarcelloprf/chatbot-agencia (worktree)</span>
+  </div>
+</header>
+
+<!-- ================================ TL;DR ================================ -->
+<section>
+  <h2>Resumo executivo</h2>
+  <p class="section-lede">
+    O bot já está funcional ponta-a-ponta com IA dual-provider (Gemini → Groq automático),
+    estado de sessão, lembretes de inatividade e fluxo cliente-novo/existente. O CRM web tem
+    scaffold pronto. Falta integrar CRM com APIs reais, lidar com áudio, transferir conta Meta
+    pra você (e depois pra Lu) e fazer o deploy de produção no Railway.
+  </p>
+
+  <div class="kpi-row">
+    <div class="kpi">
+      <div class="kpi-value">109</div>
+      <div class="kpi-label">Testes passando</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">2</div>
+      <div class="kpi-label">Sprints entregues</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">7</div>
+      <div class="kpi-label">Endpoints REST prontos</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">~R$0</div>
+      <div class="kpi-label">Custo mensal hoje</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================ ESTADO ATUAL ================================ -->
+<section>
+  <h2>Estado atual — o que já está pronto</h2>
+  <p class="section-lede">
+    Inventário fiel do código mergeado até agora. Tudo o que está marcado como <em>pronto</em>
+    tem testes verdes e pode ser usado em produção (modulo o último passo de deploy).
+  </p>
+
+  <div class="card">
+    <h3 style="margin-top:0">Backend Malu (Python · FastAPI · Celery)</h3>
+    <ul class="tight">
+      <li class="done"><span class="marker"></span><span class="text">Webhook Meta com validação HMAC-SHA256 e response sempre 200</span></li>
+      <li class="done"><span class="marker"></span><span class="text">Multi-provider de IA (Gemini 2.5 Flash primário, Groq Llama 3.3 70B fallback automático)</span></li>
+      <li class="done"><span class="marker"></span><span class="text">System prompt v4 com regras anti-preço, anti-prompt-injection e filtro off-topic</span></li>
+      <li class="done"><span class="marker"></span><span class="text">Histórico de conversa no Redis (TTL 24h)</span></li>
+      <li class="done"><span class="marker"></span><span class="text">Tabela <code>clientes</code> + captura do <code>profile.name</code> do WhatsApp</span></li>
+      <li class="done"><span class="marker"></span><span class="text">Tabela <code>reservas</code> + fluxo "cliente novo vs existente" (1/2 pelo cliente)</span></li>
+      <li class="done"><span class="marker"></span><span class="text">Estado de sessão (awaiting_intent · transferred) em Redis</span></li>
+      <li class="done"><span class="marker"></span><span class="text">Comando <code>/sair</code> encerra sessão limpa</span></li>
+      <li class="done"><span class="marker"></span><span class="text">Lembretes de inatividade (15min · 5h · 23h) via Celery, idempotentes e canceláveis</span></li>
+      <li class="done"><span class="marker"></span><span class="text">Briefing parsing: temperatura, WhatsApp do cliente, nome preferido</span></li>
+      <li class="done"><span class="marker"></span><span class="text">Notificação para Lu via WhatsApp (briefing novo &amp; cliente retornante)</span></li>
+      <li class="done"><span class="marker"></span><span class="text">Worker Celery: follow-up + relatório diário 8h</span></li>
+      <li class="done"><span class="marker"></span><span class="text">APIs REST <code>/api/*</code> com autenticação X-API-Key e CORS configurado</span></li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">CRM web (Next.js · TypeScript · shadcn/ui)</h3>
+    <ul class="tight">
+      <li class="done"><span class="marker"></span><span class="text">Scaffold completo: sidebar, topbar, 6 páginas</span></li>
+      <li class="done"><span class="marker"></span><span class="text">Dashboard, /leads, /leads/[id], /conversas, /reservas, /configuracoes</span></li>
+      <li class="done"><span class="marker"></span><span class="text">Mock data realista (20 leads, 10 conversas, 5 reservas)</span></li>
+      <li class="done"><span class="marker"></span><span class="text">Build + lint passando, paleta neutra (zinc)</span></li>
+      <li class="doing"><span class="marker"></span><span class="text"><strong>Em andamento</strong>: trocar mocks por chamadas reais à API</span></li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Infraestrutura local &amp; CI</h3>
+    <ul class="tight">
+      <li class="done"><span class="marker"></span><span class="text">docker-compose com Postgres 16 + Redis 7 (porta 5433 / 6379)</span></li>
+      <li class="done"><span class="marker"></span><span class="text">Migrations Alembic (0001 initial · 0002 clientes · 0003 reservas)</span></li>
+      <li class="done"><span class="marker"></span><span class="text">109 testes pytest com fakeredis e mocks (zero dependências externas)</span></li>
+      <li class="done"><span class="marker"></span><span class="text">Git worktree configurada para desenvolvimento paralelo Malu × CRM</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================================ ARQUITETURA ================================ -->
+<section>
+  <h2>Arquitetura</h2>
+  <p class="section-lede">
+    Sistema de 4 camadas. Tudo async. Estado da conversa vive no Redis; persistência durável no Postgres.
+  </p>
+
+  <div class="diagram">┌─────────────────────────────────────────────────────────────────┐
+│                        Cliente (WhatsApp)                       │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │ texto + áudio (futuro)
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              Meta WhatsApp Cloud API (oficial)                  │
+│         webhook POST /webhook  ◄►  outbound /messages           │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │ HTTPS + HMAC-SHA256
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                  Backend Malu  (FastAPI async)                  │
+│  ┌────────────┐  ┌────────────┐  ┌─────────────┐  ┌──────────┐  │
+│  │ Webhook    │  │ handle_msg │  │ Router IA   │  │ Briefing │  │
+│  │ + HMAC     │  │ pipeline   │  │ Gemini/Groq │  │ + Lu     │  │
+│  └────────────┘  └────────────┘  └─────────────┘  └──────────┘  │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │ REST /api/*  (X-API-Key)  →  leads · conversations · ...   │ │
+│  └────────────────────────────────────────────────────────────┘ │
+└──────┬──────────────────────┬──────────────────────┬────────────┘
+       │                      │                      │
+       ▼                      ▼                      ▼
+┌─────────────┐       ┌───────────────┐      ┌─────────────────┐
+│  Postgres   │       │     Redis     │      │  Celery worker  │
+│  (Supabase) │       │   (Upstash)   │      │ + Beat schedule │
+│  leads      │       │ session 24h   │      │ lembretes 15m/  │
+│  clientes   │       │ state         │      │ 5h/23h          │
+│  reservas   │       │ reminders ids │      │ daily report 8h │
+│  convs      │       │               │      │                 │
+└─────────────┘       └───────────────┘      └─────────────────┘
+
+                               ▲
+                               │ /api/* via X-API-Key
+                               │
+┌─────────────────────────────────────────────────────────────────┐
+│                CRM web (Next.js · server components)            │
+│   dashboard · leads · conversas · reservas · configurações      │
+└─────────────────────────────────────────────────────────────────┘</div>
+
+  <h3>Pipeline de uma mensagem</h3>
+  <pre><code>1. Meta envia POST /webhook
+2. App valida HMAC (rejeita 401 se assinatura inválida)
+3. Resposta 200 imediata; processamento em background
+4. Comando /sair?  → encerra sessão, cancela lembretes, manda despedida
+5. Estado "transferred"? → silêncio total (Lu assumiu)
+6. get_or_create_cliente(phone, profile_name) no Postgres
+7. Estado "awaiting_intent"?
+     ├── "1" / "reserva" → notify Lu, marca transferred, sai
+     ├── "2" / "nova"    → limpa estado, segue pra IA
+     └── ambíguo         → repete pergunta
+8. Primeira mensagem + reserva ativa? → pergunta 1/2, marca state
+9. IA: route_and_ask(history, customer_context)
+     - Gemini primário (5 RPM free) → se falhar, Groq automático
+10. Salva histórico (Redis), envia resposta, audit log
+11. Briefing detectado? → save_lead + update_preferred_name + notify Lu
+12. Agenda lembretes de inatividade (15m / 5h / 23h)</code></pre>
+</section>
+
+<!-- ================================ CONTAS ================================ -->
+<section>
+  <h2>Contas e serviços externos</h2>
+  <p class="section-lede">
+    Tudo é gratuito hoje. Pra produção real com volume vai precisar pagar Railway (~R$25/mês) e
+    eventualmente Gemini/Groq se passar do free tier.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Serviço</th>
+        <th>Pra quê</th>
+        <th>Conta atual</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Meta for Developers</strong><br><span style="color:var(--ink-soft);font-size:12px">developers.facebook.com</span></td>
+        <td>App WhatsApp Business · webhook · número de teste</td>
+        <td>Flávio (pessoal)</td>
+        <td><span class="badge badge-warn">migrar pra você → Lu</span></td>
+      </tr>
+      <tr>
+        <td><strong>Google AI Studio</strong><br><span style="color:var(--ink-soft);font-size:12px">aistudio.google.com</span></td>
+        <td>Gemini 2.5 Flash (IA primária)</td>
+        <td>Flávio (free tier)</td>
+        <td><span class="badge badge-warn">trocar por uma sua</span></td>
+      </tr>
+      <tr>
+        <td><strong>Groq</strong><br><span style="color:var(--ink-soft);font-size:12px">console.groq.com</span></td>
+        <td>Llama 3.3 70B (IA fallback)</td>
+        <td>Gustavo</td>
+        <td><span class="badge badge-ok">ok</span></td>
+      </tr>
+      <tr>
+        <td><strong>Supabase</strong><br><span style="color:var(--ink-soft);font-size:12px">supabase.com</span></td>
+        <td>Postgres gerenciado</td>
+        <td>Flávio (free tier)</td>
+        <td><span class="badge badge-warn">criar instância sua</span></td>
+      </tr>
+      <tr>
+        <td><strong>Upstash</strong><br><span style="color:var(--ink-soft);font-size:12px">upstash.com</span></td>
+        <td>Redis serverless</td>
+        <td>Flávio (free tier)</td>
+        <td><span class="badge badge-warn">criar instância sua</span></td>
+      </tr>
+      <tr>
+        <td><strong>Railway</strong><br><span style="color:var(--ink-soft);font-size:12px">railway.app</span></td>
+        <td>Deploy backend + worker</td>
+        <td>—</td>
+        <td><span class="badge badge-pending">a criar (~R$25/mês)</span></td>
+      </tr>
+      <tr>
+        <td><strong>Vercel</strong><br><span style="color:var(--ink-soft);font-size:12px">vercel.com</span></td>
+        <td>Deploy CRM (Next.js)</td>
+        <td>—</td>
+        <td><span class="badge badge-pending">a criar (free tier)</span></td>
+      </tr>
+      <tr>
+        <td><strong>GitHub</strong></td>
+        <td>Repos backend + CRM</td>
+        <td>Gustavo</td>
+        <td><span class="badge badge-ok">ok</span></td>
+      </tr>
+      <tr>
+        <td><strong>ngrok</strong></td>
+        <td>Tunnel pra dev local com webhook Meta</td>
+        <td>Gustavo</td>
+        <td><span class="badge badge-ok">ok (free)</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout warn">
+    <strong>Pendência crítica — propriedade da conta Meta.</strong>
+    Hoje o app Meta + número de teste estão no <em>Business Manager</em> do Flávio.
+    Sem transferência, você fica dependente dele pra qualquer mudança em produção
+    (regenerar token, alterar webhook, gerenciar números). O caminho profissional é:
+    <strong>Flávio te adiciona como admin → você testa → depois Lu cria conta dela e vocês
+    transferem o app pra ela.</strong>
+  </div>
+</section>
+
+<!-- ================================ ROADMAP ================================ -->
+<section>
+  <h2>Roadmap até o deploy de produção</h2>
+  <p class="section-lede">
+    Sequência ordenada por dependência. Itens marcados <em>doing</em> estão em andamento agora;
+    os <em>done</em> já foram entregues e testados.
+  </p>
+
+  <div class="timeline">
+
+    <div class="timeline-item done">
+      <h4>Sprint 1 · MVP da Malu <span class="badge badge-ok">done</span></h4>
+      <p>Rename Lu, comando /sair, captura de nome via profile, fluxo cliente novo/existente.</p>
+    </div>
+
+    <div class="timeline-item done">
+      <h4>Sprint 2 · Lembretes de inatividade <span class="badge badge-ok">done</span></h4>
+      <p>Celery: 15m / 5h / 23h após última mensagem. Idempotente. Cancela em /sair e transfer.</p>
+    </div>
+
+    <div class="timeline-item done">
+      <h4>CRM v0.1 · Scaffold Next.js <span class="badge badge-ok">done</span></h4>
+      <p>6 páginas com mock data, paleta neutra, build &amp; lint passando.</p>
+    </div>
+
+    <div class="timeline-item done">
+      <h4>API REST <code>/api/*</code> · Backend <span class="badge badge-ok">done</span></h4>
+      <p>7 endpoints com X-API-Key e CORS. leads, conversations, reservas, dashboard metrics.</p>
+    </div>
+
+    <div class="timeline-item doing">
+      <h4>CRM v0.2 · Integração com API real <span class="badge badge-warn">doing</span></h4>
+      <p>Frontend troca mocks por chamadas reais ao backend (próximo prompt do Claude CLI).</p>
+    </div>
+
+    <div class="timeline-item">
+      <h4>Suporte a áudio &amp; mídia (Item 2A) <span class="badge badge-pending">próximo</span></h4>
+      <p>Resposta educada pra cliente que manda áudio/imagem: <em>"por enquanto só entendo texto"</em>.
+      Versão B (transcrição com Gemini Audio) depois.</p>
+    </div>
+
+    <div class="timeline-item">
+      <h4>Migração conta Meta <span class="badge badge-pending">crítico antes do deploy</span></h4>
+      <p>Flávio → você (admin compartilhado) → eventualmente Lu (transferência total do app).</p>
+    </div>
+
+    <div class="timeline-item">
+      <h4>Deploy produção (Railway + Vercel) <span class="badge badge-pending">depois</span></h4>
+      <p>Backend Malu no Railway (com Supabase+Upstash gerenciados), CRM na Vercel,
+      publicação do app Meta (sair do modo Dev).</p>
+    </div>
+
+    <div class="timeline-item">
+      <h4>Onboarding com a Lu <span class="badge badge-pending">final</span></h4>
+      <p>Lu loga no CRM, recebe primeiro lead real, valida fluxo end-to-end.</p>
+    </div>
+
+  </div>
+</section>
+
+<!-- ================================ O QUE FALTA ================================ -->
+<section>
+  <h2>O que falta refinar/adicionar (detalhado)</h2>
+
+  <h3>Refinos no backend Malu</h3>
+  <ul class="tight">
+    <li class="todo"><span class="marker"></span><span class="text">Detector de tipo de mensagem (áudio/imagem/vídeo/sticker) com resposta educada</span></li>
+    <li class="todo"><span class="marker"></span><span class="text">Transcrição de áudio via Gemini Audio (versão completa, V2)</span></li>
+    <li class="todo"><span class="marker"></span><span class="text">Rate limit por phone (anti-spam — cliente disparando 50 msgs por minuto)</span></li>
+    <li class="todo"><span class="marker"></span><span class="text">Endpoint <code>POST /api/conversations/{phone}/takeover</code> pra Lu marcar conversa como transferida pelo CRM</span></li>
+    <li class="todo"><span class="marker"></span><span class="text">Endpoint <code>POST /api/conversations/{phone}/send</code> pra Lu mandar mensagem pelo CRM e sair pelo número da Malu</span></li>
+    <li class="todo"><span class="marker"></span><span class="text">Telemetria leve: tempo médio de resposta, taxa de fallback Gemini→Groq, etc.</span></li>
+  </ul>
+
+  <h3>Refinos no CRM</h3>
+  <ul class="tight">
+    <li class="todo"><span class="marker"></span><span class="text">Conectar com API real (em andamento)</span></li>
+    <li class="todo"><span class="marker"></span><span class="text">Autenticação real — hoje só tem X-API-Key compartilhada. Auth.js (Google login) quando virar multi-tenant</span></li>
+    <li class="todo"><span class="marker"></span><span class="text">Realtime nas conversas (Server-Sent Events ou polling 5s)</span></li>
+    <li class="todo"><span class="marker"></span><span class="text">Dashboard com gráficos (conversas/dia, taxa conversão, destinos top, etc.) — base pro plano "Insights"</span></li>
+    <li class="todo"><span class="marker"></span><span class="text">Mobile-friendly (Lu vai usar pelo celular boa parte do tempo)</span></li>
+  </ul>
+
+  <h3>Infra &amp; produto</h3>
+  <ul class="tight">
+    <li class="todo"><span class="marker"></span><span class="text">Migração conta Meta (Flávio → você → Lu)</span></li>
+    <li class="todo"><span class="marker"></span><span class="text">Setup Supabase próprio (não dependente do Flávio)</span></li>
+    <li class="todo"><span class="marker"></span><span class="text">Setup Upstash próprio</span></li>
+    <li class="todo"><span class="marker"></span><span class="text">Deploy Railway (backend + worker como 2 services)</span></li>
+    <li class="todo"><span class="marker"></span><span class="text">Deploy Vercel (CRM)</span></li>
+    <li class="todo"><span class="marker"></span><span class="text">Domínio próprio (ex.: malu.lumilhas.com.br · crm.lumilhas.com.br)</span></li>
+    <li class="todo"><span class="marker"></span><span class="text">Publicar app Meta (Mode toggle Dev → Live) — fim das restrições de allowed list</span></li>
+    <li class="todo"><span class="marker"></span><span class="text">Migração do número de teste pro número real da Lu Milhas</span></li>
+  </ul>
+</section>
+
+<!-- ================================ DECISÕES ================================ -->
+<section>
+  <h2>Decisões tomadas (registro)</h2>
+  <ul class="tight">
+    <li class="done"><span class="marker"></span><span class="text"><strong>IA</strong>: Gemini 2.5 Flash primário · Groq Llama 3.3 70B fallback automático (auto). Permite trocar via .env sem código.</span></li>
+    <li class="done"><span class="marker"></span><span class="text"><strong>Persona</strong>: Lu (não Luciana) · regra absoluta anti-preço · seção 22 do prompt blinda jailbreak.</span></li>
+    <li class="done"><span class="marker"></span><span class="text"><strong>Modelo de negócio</strong>: começar single-tenant focado na Lu. Multi-tenant fica pra v2 com 2+ clientes validados.</span></li>
+    <li class="done"><span class="marker"></span><span class="text"><strong>CRM</strong>: monorepo via git worktree (subdir <code>crm/</code>). Backend e frontend lado a lado sem conflito.</span></li>
+    <li class="done"><span class="marker"></span><span class="text"><strong>Stack DB</strong>: Postgres no Supabase + Redis no Upstash (descartamos Docker local em produção).</span></li>
+    <li class="done"><span class="marker"></span><span class="text"><strong>Chatwoot</strong>: descartado por agora. CRM próprio cobre o caso.</span></li>
+    <li class="done"><span class="marker"></span><span class="text"><strong>Agente de IA buscando preços</strong>: fora do MVP. Volta como produto pago plano 3 no futuro.</span></li>
+  </ul>
+</section>
+
+<!-- ================================ CUSTOS ================================ -->
+<section>
+  <h2>Custos estimados</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Item</th>
+        <th>Hoje</th>
+        <th>Produção (~100 conv/dia)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Meta WhatsApp Cloud API</td>
+        <td>R$ 0</td>
+        <td>R$ 0 até 1.000 conv/mês; depois ~R$ 0,40 por conv</td>
+      </tr>
+      <tr>
+        <td>Gemini 2.5 Flash (free tier)</td>
+        <td>R$ 0</td>
+        <td>R$ 0 até estourar (~250 req/dia); depois ~R$ 3-8/mês</td>
+      </tr>
+      <tr>
+        <td>Groq Llama 3.3 70B (fallback)</td>
+        <td>R$ 0</td>
+        <td>R$ 0 (~6000 req/dia free; sobra muito)</td>
+      </tr>
+      <tr>
+        <td>Supabase (Postgres)</td>
+        <td>R$ 0</td>
+        <td>R$ 0 até 500MB; depois ~US$ 25/mês</td>
+      </tr>
+      <tr>
+        <td>Upstash (Redis)</td>
+        <td>R$ 0</td>
+        <td>R$ 0 até 10k commands/dia</td>
+      </tr>
+      <tr>
+        <td>Railway (backend + worker)</td>
+        <td>—</td>
+        <td>~US$ 5-10/mês</td>
+      </tr>
+      <tr>
+        <td>Vercel (CRM)</td>
+        <td>—</td>
+        <td>R$ 0 no Hobby</td>
+      </tr>
+      <tr>
+        <td>Domínio próprio (opcional)</td>
+        <td>—</td>
+        <td>~R$ 40/ano</td>
+      </tr>
+      <tr style="background:#fafafa;font-weight:600">
+        <td>Total mensal estimado</td>
+        <td>R$ 0</td>
+        <td>~R$ 30–60/mês no início</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ================================ CHECKLIST PRÉ-DEPLOY ================================ -->
+<section>
+  <h2>Checklist crítico pré-deploy</h2>
+  <p class="section-lede">Esses itens precisam estar verde antes de a Lu ver o sistema rodando em produção.</p>
+
+  <div class="card">
+    <ul class="tight">
+      <li class="todo"><span class="marker"></span><span class="text">CRM consumindo API real (não mocks)</span></li>
+      <li class="todo"><span class="marker"></span><span class="text">Detector de áudio/imagem no parse_incoming</span></li>
+      <li class="todo"><span class="marker"></span><span class="text">Conta Meta transferida pra você (admin)</span></li>
+      <li class="todo"><span class="marker"></span><span class="text">Supabase + Upstash provisionados na sua conta</span></li>
+      <li class="todo"><span class="marker"></span><span class="text">App Meta em modo Live (não Development)</span></li>
+      <li class="todo"><span class="marker"></span><span class="text">Backend deployado no Railway com migrations rodadas</span></li>
+      <li class="todo"><span class="marker"></span><span class="text">CRM deployado na Vercel com env vars corretas</span></li>
+      <li class="todo"><span class="marker"></span><span class="text">Webhook Meta apontando pra URL pública do Railway</span></li>
+      <li class="todo"><span class="marker"></span><span class="text">Endpoint <code>/health</code> respondendo 200</span></li>
+      <li class="todo"><span class="marker"></span><span class="text">Teste end-to-end: cliente real manda msg → Malu responde → briefing chega na Lu</span></li>
+      <li class="todo"><span class="marker"></span><span class="text">Lu logada no CRM, vê o primeiro lead</span></li>
+      <li class="todo"><span class="marker"></span><span class="text">Plano de rollback: se algo der ruim, voltar pra ngrok local em &lt;10min</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================================ FOOTER ================================ -->
+<footer>
+  <p>
+    Documento gerado em 02/06/2026 pela linha de comando do projeto.
+    Atualize conforme cada sprint fechar — esse é o mapa vivo de onde estamos e pra onde vamos.
+  </p>
+  <p style="color:var(--ink-soft);font-size:12px">
+    Repositório: <code>gustavomarcelloprf/chatbot-agencia</code> · branch <code>main</code> + worktree <code>feat/crm-frontend</code>.
+  </p>
+</footer>
+
+</main>
+</body>
+</html>

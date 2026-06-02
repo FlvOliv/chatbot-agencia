@@ -18,10 +18,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from app import __version__
 from app.ai import route_and_ask
+from app.api import api_router
 from app.briefing import (
     extract_briefing,
     extract_customer_name,
@@ -58,7 +60,12 @@ from app.session import (
     save_history,
     set_state,
 )
-from app.whatsapp import parse_incoming, send_message
+from app.whatsapp import (
+    NON_TEXT_REPLY,
+    detect_non_text_message,
+    parse_incoming,
+    send_message,
+)
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -91,6 +98,19 @@ app = FastAPI(
     version=__version__,
     lifespan=lifespan,
 )
+
+# CORS — permite o frontend CRM (Next.js) consumir as rotas /api/*
+_origins = [o.strip() for o in settings.crm_cors_origins.split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+# Rotas REST do CRM (todas em /api/*, exigem X-API-Key)
+app.include_router(api_router)
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +206,27 @@ async def handle_message(data: dict[str, Any]) -> None:
            manda pergunta de intent (1/2), marca awaiting_intent, sai.
         6. Caminho normal: histórico → IA → resposta → briefing.
     """
+    # 0) Mensagem de tipo não-texto (áudio, imagem, vídeo, etc.)
+    #    Responde educadamente em vez de ficar muda. Não chama IA, não
+    #    persiste no histórico Redis (cliente vai reescrever em texto).
+    non_text = detect_non_text_message(data)
+    if non_text is not None:
+        nt_phone, nt_profile, nt_type = non_text
+        logger.info(
+            "non-text message type=%s from %s (profile=%r)",
+            nt_type, nt_phone, nt_profile,
+        )
+        try:
+            await send_message(nt_phone, NON_TEXT_REPLY)
+        except Exception:
+            logger.exception("send NON_TEXT_REPLY failed for %s", nt_phone)
+        asyncio.create_task(
+            _persist_conversation(
+                nt_phone, f"[mensagem de {nt_type}]", NON_TEXT_REPLY, f"non-text:{nt_type}"
+            )
+        )
+        return
+
     parsed = parse_incoming(data)
     if parsed is None:
         return

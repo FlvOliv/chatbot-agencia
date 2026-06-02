@@ -1,0 +1,843 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Plataforma Lu Milhas — Visão Geral</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --surface: #ffffff;
+    --border: #e4e4e7;
+    --border-strong: #d4d4d8;
+    --ink: #18181b;
+    --ink-mute: #52525b;
+    --ink-soft: #71717a;
+    --accent: #18181b;
+    --accent-soft: #f4f4f5;
+    --ok: #15803d;
+    --ok-bg: #f0fdf4;
+    --warn: #b45309;
+    --warn-bg: #fffbeb;
+    --pending: #9ca3af;
+    --pending-bg: #f3f4f6;
+    --info: #0369a1;
+    --info-bg: #f0f9ff;
+    --radius: 8px;
+    --radius-lg: 12px;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.04), 0 1px 1px rgba(0,0,0,.02);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Geist", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 16px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 56px 32px 96px; }
+
+  header.doc-header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 36px;
+    margin-bottom: 56px;
+  }
+  .eyebrow {
+    font-size: 12px; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--ink-soft);
+    font-weight: 500; margin-bottom: 12px;
+  }
+  h1 {
+    font-size: 40px; line-height: 1.1; margin: 0 0 16px;
+    font-weight: 600; letter-spacing: -0.025em;
+  }
+  .subtitle {
+    color: var(--ink-mute);
+    font-size: 19px; line-height: 1.5; margin: 0;
+    max-width: 56ch;
+  }
+  .meta-line {
+    display: flex; gap: 24px; flex-wrap: wrap;
+    margin-top: 28px; color: var(--ink-soft); font-size: 13px;
+  }
+  .meta-line span strong { color: var(--ink); font-weight: 500; }
+
+  section { margin-bottom: 64px; }
+
+  h2 {
+    font-size: 26px; line-height: 1.25;
+    margin: 0 0 12px; font-weight: 600;
+    letter-spacing: -0.015em;
+  }
+  h2 + p.lede {
+    color: var(--ink-mute);
+    margin-top: 0; margin-bottom: 28px;
+    font-size: 17px; max-width: 62ch;
+  }
+  h3 {
+    font-size: 18px; line-height: 1.4;
+    margin: 28px 0 10px; font-weight: 600;
+  }
+
+  p { margin: 0 0 18px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px 28px;
+    box-shadow: var(--shadow-sm);
+  }
+  .card + .card { margin-top: 16px; }
+  .card h3:first-child { margin-top: 0; }
+
+  /* Quote de abertura, conceitual */
+  .pull-quote {
+    font-size: 22px;
+    line-height: 1.45;
+    color: var(--ink);
+    border-left: 3px solid var(--ink);
+    padding: 8px 0 8px 24px;
+    margin: 24px 0 32px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+
+  /* Bloco "três pilares" */
+  .pillars {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 14px;
+    margin: 20px 0 8px;
+  }
+  @media (max-width: 720px) {
+    .pillars { grid-template-columns: 1fr; }
+  }
+  .pillar {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 22px;
+  }
+  .pillar .pillar-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--ink-soft);
+    margin-bottom: 10px;
+  }
+  .pillar h3 {
+    margin: 0 0 8px;
+    font-size: 18px;
+  }
+  .pillar p {
+    color: var(--ink-mute);
+    font-size: 14.5px;
+    margin: 0;
+    line-height: 1.55;
+  }
+  .pillar.principal {
+    border-color: var(--ink);
+    border-width: 1.5px;
+  }
+  .pillar.principal .pillar-label {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  /* Status badges */
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px;
+    font-size: 12px; font-weight: 500;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .badge::before {
+    content: ""; width: 6px; height: 6px;
+    border-radius: 50%; background: currentColor; opacity: .85;
+  }
+  .badge-ok      { color: var(--ok);   background: var(--ok-bg);   border-color: rgba(21,128,61,.18); }
+  .badge-warn    { color: var(--warn); background: var(--warn-bg); border-color: rgba(180,83,9,.18); }
+  .badge-pending { color: var(--ink-soft); background: var(--pending-bg); border-color: var(--border); }
+  .badge-info    { color: var(--info); background: var(--info-bg); border-color: rgba(3,105,161,.16); }
+
+  /* Lista de features */
+  ul.features {
+    list-style: none; padding: 0; margin: 0;
+  }
+  ul.features li {
+    padding: 14px 0;
+    border-bottom: 1px dashed var(--border);
+    display: grid;
+    grid-template-columns: 24px 1fr auto;
+    gap: 14px;
+    align-items: flex-start;
+  }
+  ul.features li:last-child { border-bottom: 0; }
+  ul.features li .marker {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    display: inline-flex;
+    align-items: center; justify-content: center;
+    font-size: 11px; color: var(--ink-soft);
+    flex-shrink: 0;
+  }
+  ul.features li.done .marker { border-color: var(--ok); background: var(--ok); color: white; }
+  ul.features li.done .marker::after { content: "✓"; }
+  ul.features li.doing .marker { border-color: var(--warn); background: var(--warn-bg); color: var(--warn); }
+  ul.features li.doing .marker::after { content: "•"; font-size: 22px; line-height: 0; margin-bottom: 3px; }
+  ul.features li.todo .marker::after { content: ""; }
+  ul.features li .text strong { color: var(--ink); font-weight: 600; }
+  ul.features li .text small {
+    display: block; color: var(--ink-soft);
+    font-size: 13px; margin-top: 3px; line-height: 1.45;
+  }
+
+  /* Timeline */
+  .timeline { position: relative; padding-left: 32px; margin-top: 12px; }
+  .timeline::before {
+    content: ""; position: absolute;
+    left: 9px; top: 8px; bottom: 8px;
+    width: 1px; background: var(--border-strong);
+  }
+  .timeline-item { position: relative; padding-bottom: 28px; }
+  .timeline-item::before {
+    content: ""; position: absolute;
+    left: -26px; top: 8px;
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 2px solid var(--border-strong);
+  }
+  .timeline-item.done::before { background: var(--ok); border-color: var(--ok); }
+  .timeline-item.doing::before {
+    background: var(--warn); border-color: var(--warn);
+    box-shadow: 0 0 0 4px var(--warn-bg);
+  }
+  .timeline-item h4 {
+    margin: 0 0 6px;
+    font-size: 16px; font-weight: 600;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .timeline-item p {
+    color: var(--ink-mute);
+    font-size: 14.5px;
+    margin: 0;
+    max-width: 60ch;
+  }
+
+  /* Cenário (storytelling) */
+  .scenario {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px 28px;
+    margin: 20px 0;
+  }
+  .scenario-step {
+    display: grid;
+    grid-template-columns: 30px 1fr;
+    gap: 18px;
+    padding: 14px 0;
+    border-bottom: 1px dashed var(--border);
+  }
+  .scenario-step:last-child { border-bottom: 0; padding-bottom: 0; }
+  .scenario-step:first-child { padding-top: 0; }
+  .scenario-step .step-num {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--ink);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600;
+    margin-top: 2px;
+  }
+  .scenario-step .step-content strong {
+    color: var(--ink); font-weight: 600;
+    display: block; margin-bottom: 4px;
+  }
+  .scenario-step .step-content p {
+    color: var(--ink-mute);
+    font-size: 14.5px;
+    margin: 0;
+    line-height: 1.6;
+  }
+
+  /* Callouts */
+  .callout {
+    border-left: 3px solid var(--border-strong);
+    padding: 14px 18px;
+    margin: 20px 0;
+    background: #fafafa;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    color: var(--ink-mute);
+  }
+  .callout strong { color: var(--ink); }
+  .callout.info { border-left-color: var(--info); background: var(--info-bg); color: #075985; }
+  .callout.info strong { color: var(--info); }
+  .callout.warn { border-left-color: var(--warn); background: var(--warn-bg); color: #78350f; }
+  .callout.warn strong { color: var(--warn); }
+
+  /* Decisões pra Lu */
+  .question-list { list-style: none; padding: 0; margin: 0; }
+  .question-list li {
+    padding: 20px 24px;
+    margin-bottom: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    border-left: 3px solid var(--info);
+  }
+  .question-list li .q {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 6px;
+  }
+  .question-list li .q-detail {
+    font-size: 14.5px;
+    color: var(--ink-mute);
+    line-height: 1.6;
+  }
+
+  /* Tabela */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14.5px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+  thead th {
+    text-align: left; font-weight: 500;
+    font-size: 12px; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--ink-soft);
+    padding: 14px 18px;
+    background: #fafafa;
+    border-bottom: 1px solid var(--border);
+  }
+  tbody td {
+    padding: 14px 18px;
+    border-top: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tbody tr:first-child td { border-top: 0; }
+  tbody tr.total td { font-weight: 600; background: #fafafa; }
+
+  footer {
+    margin-top: 72px; padding-top: 28px;
+    border-top: 1px solid var(--border);
+    color: var(--ink-soft); font-size: 13.5px;
+  }
+
+  /* Print */
+  @media print {
+    body { background: white; font-size: 11pt; }
+    main { padding: 0; max-width: none; }
+    .card, table, .pillar, .scenario { box-shadow: none; break-inside: avoid; }
+    section { break-inside: avoid; }
+    h1 { font-size: 22pt; }
+    h2 { font-size: 14pt; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+<!-- ================================ HEADER ================================ -->
+<header class="doc-header">
+  <div class="eyebrow">Visão do produto · para a Lu</div>
+  <h1>Uma plataforma feita para sua agência</h1>
+  <p class="subtitle">
+    Um painel onde você organiza leads, conversas e reservas — com uma assistente
+    virtual atendendo seu WhatsApp como diferencial opcional. O foco é a sua operação
+    do dia a dia, sem você precisar de planilha, post-it ou cabeça.
+  </p>
+  <div class="meta-line">
+    <span><strong>Para</strong> Lu — Lu Milhas &amp; Viagens</span>
+    <span><strong>De</strong> Gustavo</span>
+    <span><strong>Atualizado</strong> 02 de junho de 2026</span>
+  </div>
+</header>
+
+<!-- ================================ COMO PENSAMOS ================================ -->
+<section>
+  <h2>Como pensamos esse produto</h2>
+  <p class="lede">
+    A gente não está construindo "um chatbot". A gente está construindo um sistema operacional
+    para agências de viagens. O bot do WhatsApp é uma peça desse sistema — importante, mas opcional.
+  </p>
+
+  <div class="pillars">
+    <div class="pillar principal">
+      <div class="pillar-label">O coração</div>
+      <h3>Painel da agência</h3>
+      <p>
+        Onde você abre todo dia. Vê leads novos, conversas em andamento, reservas
+        fechadas. Funciona sozinho, mesmo sem o bot.
+      </p>
+    </div>
+    <div class="pillar">
+      <div class="pillar-label">Diferencial</div>
+      <h3>Malu no WhatsApp</h3>
+      <p>
+        Atende clientes quando você está dormindo, viajando ou em outra ligação.
+        Coleta os dados, organiza tudo e te entrega um briefing pronto.
+      </p>
+    </div>
+    <div class="pillar">
+      <div class="pillar-label">Próximo passo</div>
+      <h3>Insights e relatórios</h3>
+      <p>
+        Mostra padrões dos seus clientes, destinos mais pedidos, horários de pico,
+        taxa de fechamento. Vira inteligência pro seu negócio crescer.
+      </p>
+    </div>
+  </div>
+
+  <p class="pull-quote">
+    A Malu existe pra você ganhar tempo. O painel existe pra você ganhar clareza.
+    Quando os dois trabalham juntos, é onde a mágica acontece.
+  </p>
+</section>
+
+<!-- ================================ O QUE JÁ FUNCIONA ================================ -->
+<section>
+  <h2>O que já está pronto</h2>
+  <p class="lede">
+    Lista honesta do que já testamos e funciona. Cada item desses já passou por testes
+    automáticos e simulação de conversas reais.
+  </p>
+
+  <div class="card">
+    <h3>No atendimento (Malu no WhatsApp)</h3>
+    <ul class="features">
+      <li class="done">
+        <span class="marker"></span>
+        <span class="text">
+          <strong>Malu atende em segundos pelo WhatsApp</strong>
+          <small>Recebe a mensagem do cliente, entende o pedido e responde com naturalidade.</small>
+        </span>
+        <span class="badge badge-ok">pronto</span>
+      </li>
+      <li class="done">
+        <span class="marker"></span>
+        <span class="text">
+          <strong>Reconhece se é cliente novo ou já cliente seu</strong>
+          <small>Se tem reserva ativa, ela pergunta se quer falar dela ou planejar uma viagem nova. Se for sobre a reserva, te transfere na hora.</small>
+        </span>
+        <span class="badge badge-ok">pronto</span>
+      </li>
+      <li class="done">
+        <span class="marker"></span>
+        <span class="text">
+          <strong>Coleta dados de viagem sem o cliente perceber</strong>
+          <small>Destino, datas, quantas pessoas, tipo de hospedagem, forma de pagamento, ocasião — tudo numa conversa natural.</small>
+        </span>
+        <span class="badge badge-ok">pronto</span>
+      </li>
+      <li class="done">
+        <span class="marker"></span>
+        <span class="text">
+          <strong>Nunca menciona preços</strong>
+          <small>Regra absoluta: ela acolhe e explica que você confirma os valores antes — proteção pra não criar expectativas erradas.</small>
+        </span>
+        <span class="badge badge-ok">pronto</span>
+      </li>
+      <li class="done">
+        <span class="marker"></span>
+        <span class="text">
+          <strong>Manda o briefing pronto pra você</strong>
+          <small>Quando a coleta termina, você recebe no seu WhatsApp um resumo organizado com tudo que precisa pra cotar.</small>
+        </span>
+        <span class="badge badge-ok">pronto</span>
+      </li>
+      <li class="done">
+        <span class="marker"></span>
+        <span class="text">
+          <strong>Lembretes automáticos se o cliente sumir</strong>
+          <small>Em 15 minutos, 5 horas e 23 horas. Reengaja sem ser invasiva. Para automaticamente se o cliente responder ou se você assumir.</small>
+        </span>
+        <span class="badge badge-ok">pronto</span>
+      </li>
+      <li class="done">
+        <span class="marker"></span>
+        <span class="text">
+          <strong>Cliente pode encerrar quando quiser</strong>
+          <small>Basta digitar "sair", "parar" ou "encerrar". A Malu se despede educada e limpa a conversa.</small>
+        </span>
+        <span class="badge badge-ok">pronto</span>
+      </li>
+      <li class="done">
+        <span class="marker"></span>
+        <span class="text">
+          <strong>Protegida contra abuso e mau uso</strong>
+          <small>Se um cliente tentar usar a Malu pra coisas fora de viagens (receita de bolo, código, etc.), ela educadamente recusa.</small>
+        </span>
+        <span class="badge badge-ok">pronto</span>
+      </li>
+      <li class="done">
+        <span class="marker"></span>
+        <span class="text">
+          <strong>Funciona mesmo se a IA principal estiver fora do ar</strong>
+          <small>Usamos duas tecnologias de IA em paralelo. Se uma falhar, a outra assume sem o cliente perceber.</small>
+        </span>
+        <span class="badge badge-ok">pronto</span>
+      </li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>No painel da agência (a versão visual)</h3>
+    <ul class="features">
+      <li class="done">
+        <span class="marker"></span>
+        <span class="text">
+          <strong>Visual do painel desenhado</strong>
+          <small>Telas de início, leads, conversas, reservas e configurações já existem. Visual limpo, profissional, pensado pra você abrir todo dia sem cansar a vista.</small>
+        </span>
+        <span class="badge badge-ok">pronto</span>
+      </li>
+      <li class="doing">
+        <span class="marker"></span>
+        <span class="text">
+          <strong>Conectar o painel à Malu (acontecendo agora)</strong>
+          <small>Tudo que a Malu captura aparece no painel automaticamente. Sem necessidade de copiar e colar.</small>
+        </span>
+        <span class="badge badge-warn">em andamento</span>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================================ DIA A DIA ================================ -->
+<section>
+  <h2>Como vai ser seu dia a dia</h2>
+  <p class="lede">
+    Um cenário típico de como o sistema entra na sua rotina. Tudo o que está escrito aqui já
+    funciona ou está sendo finalizado.
+  </p>
+
+  <div class="scenario">
+    <div class="scenario-step">
+      <span class="step-num">1</span>
+      <div class="step-content">
+        <strong>De manhã, você abre o painel</strong>
+        <p>
+          Vê quantos leads novos chegaram durante a noite, quais estão "quentes" (cliente
+          quer fechar em poucos dias) e quais estão "frios" (só pesquisando).
+          Cada lead vem com um resumo pronto: destino, datas, pessoas, orçamento, ocasião.
+        </p>
+      </div>
+    </div>
+    <div class="scenario-step">
+      <span class="step-num">2</span>
+      <div class="step-content">
+        <strong>Um cliente novo manda mensagem</strong>
+        <p>
+          A Malu cumprimenta pelo nome que ele tem no WhatsApp, entende que ele quer
+          viajar para Cancún em julho, coleta tudo numa conversa natural (datas,
+          pessoas, hospedagem, orçamento). No fim, te entrega o briefing pronto no
+          seu WhatsApp.
+        </p>
+      </div>
+    </div>
+    <div class="scenario-step">
+      <span class="step-num">3</span>
+      <div class="step-content">
+        <strong>Um cliente que você já atendeu volta</strong>
+        <p>
+          A Malu reconhece. Pergunta: "É sobre a reserva que já temos ou quer planejar
+          algo novo?". Se for sobre a reserva existente, ela passa direto pra você sem
+          tentar responder coisa errada. Se for nova, ela coleta os dados.
+        </p>
+      </div>
+    </div>
+    <div class="scenario-step">
+      <span class="step-num">4</span>
+      <div class="step-content">
+        <strong>Você assume e fecha a cotação</strong>
+        <p>
+          Pelo painel, abre o lead, lê o briefing completo, cota nos sistemas que já usa,
+          responde o cliente no mesmo número do WhatsApp. Marca a reserva como "ativa"
+          quando ele paga.
+        </p>
+      </div>
+    </div>
+    <div class="scenario-step">
+      <span class="step-num">5</span>
+      <div class="step-content">
+        <strong>Cliente fica em silêncio depois?</strong>
+        <p>
+          A Malu manda lembretes leves (em 15 minutos, 5 horas, 23 horas). Sem ser
+          chata. Se ele responde a qualquer momento, ela retoma de onde parou. Se ele
+          quer sair, basta digitar "sair".
+        </p>
+      </div>
+    </div>
+    <div class="scenario-step">
+      <span class="step-num">6</span>
+      <div class="step-content">
+        <strong>No fim do dia, você recebe um relatório</strong>
+        <p>
+          Quantos leads vieram, qual a temperatura média, quantas conversas estão
+          esperando você. Tudo num WhatsApp curto pra você fechar o dia.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================ ESTAMOS CONSTRUINDO ================================ -->
+<section>
+  <h2>O que estamos construindo agora</h2>
+  <p class="lede">
+    Tarefas em curso. Devem terminar nas próximas 1–2 semanas, sem nenhuma ação sua.
+  </p>
+
+  <ul class="features">
+    <li class="doing">
+      <span class="marker"></span>
+      <span class="text">
+        <strong>Conectar o painel à Malu</strong>
+        <small>Pra todo lead que a Malu captura aparecer no painel sem você fazer nada.</small>
+      </span>
+      <span class="badge badge-warn">esta semana</span>
+    </li>
+    <li class="todo">
+      <span class="marker"></span>
+      <span class="text">
+        <strong>Aceitar áudio dos clientes</strong>
+        <small>Hoje a Malu só entende texto. Vamos fazer ela entender áudio também — muita gente
+        manda só nota de voz no WhatsApp.</small>
+      </span>
+      <span class="badge badge-pending">próxima semana</span>
+    </li>
+    <li class="todo">
+      <span class="marker"></span>
+      <span class="text">
+        <strong>Acesso pelo celular</strong>
+        <small>Pra você ver o painel em qualquer lugar, sem precisar de computador.</small>
+      </span>
+      <span class="badge badge-pending">próxima semana</span>
+    </li>
+  </ul>
+</section>
+
+<!-- ================================ ROADMAP ================================ -->
+<section>
+  <h2>O caminho até você usar de verdade</h2>
+  <p class="lede">
+    Etapas até o momento de você usar com clientes reais.
+  </p>
+
+  <div class="timeline">
+    <div class="timeline-item done">
+      <h4>Etapa 1 — Bot funcional <span class="badge badge-ok">concluída</span></h4>
+      <p>Malu coleta dados, gera briefing, lembra cliente parado, reconhece quem é cliente seu.</p>
+    </div>
+
+    <div class="timeline-item done">
+      <h4>Etapa 2 — Painel desenhado <span class="badge badge-ok">concluída</span></h4>
+      <p>As 5 telas do painel já existem visualmente: dashboard, leads, conversas, reservas, configurações.</p>
+    </div>
+
+    <div class="timeline-item doing">
+      <h4>Etapa 3 — Painel conversando com a Malu <span class="badge badge-warn">em andamento</span></h4>
+      <p>Os dados que a Malu coleta aparecem no painel automaticamente.</p>
+    </div>
+
+    <div class="timeline-item">
+      <h4>Etapa 4 — Acertos finais de visual e usabilidade <span class="badge badge-pending">próxima</span></h4>
+      <p>Você vê o sistema, dá feedback, a gente refina. Aqui é onde sua opinião pesa mais.</p>
+    </div>
+
+    <div class="timeline-item">
+      <h4>Etapa 5 — Subir o sistema pra "ar" <span class="badge badge-pending">próxima</span></h4>
+      <p>Sair do nosso computador e ir pra internet de verdade. Sistema acessível 24h, pronto pra
+      receber clientes reais.</p>
+    </div>
+
+    <div class="timeline-item">
+      <h4>Etapa 6 — Período de teste com você <span class="badge badge-pending">próxima</span></h4>
+      <p>Você usa, a gente acompanha de perto, ajusta o que precisar. 2–4 semanas.</p>
+    </div>
+
+    <div class="timeline-item">
+      <h4>Etapa 7 — Lançamento oficial <span class="badge badge-pending">final</span></h4>
+      <p>Sua agência rodando 100% no sistema, com a Malu atendendo seu WhatsApp principal.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================================ DECISÕES PRA LU ================================ -->
+<section>
+  <h2>O que precisamos decidir juntos</h2>
+  <p class="lede">
+    Alguns pontos só você pode definir. Quando tiver tempo, vamos conversar sobre cada um.
+  </p>
+
+  <ul class="question-list">
+    <li>
+      <div class="q">Qual número de WhatsApp vai ser o "oficial" da Malu?</div>
+      <div class="q-detail">
+        Pode ser o número atual da Lu Milhas ou um novo. Atenção: o número que escolhermos
+        vai virar exclusivo da Malu, não pode mais ser usado como WhatsApp comum no celular.
+        Por isso muita gente prefere comprar um chip novo só pra isso.
+      </div>
+    </li>
+    <li>
+      <div class="q">Você quer que a Malu saiba dos seus clientes atuais?</div>
+      <div class="q-detail">
+        Se sim, vamos cadastrar uma lista inicial deles no sistema (umas 20–30 reservas
+        ativas). Aí quando algum cliente seu antigo voltar pelo WhatsApp, a Malu reconhece
+        e te transfere direto, sem fazer perguntas que ele já respondeu antes.
+      </div>
+    </li>
+    <li>
+      <div class="q">Tem padrões da agência que devem estar no comportamento da Malu?</div>
+      <div class="q-detail">
+        Coisas como: "sempre perguntar sobre bagagem despachada", "destacar pacotes
+        all-inclusive", "evitar destinos X em determinada época". Quanto mais a gente
+        capturar do seu jeito de atender, mais a Malu vai parecer uma extensão sua.
+      </div>
+    </li>
+    <li>
+      <div class="q">Em quanto tempo você se compromete a responder uma conversa transferida?</div>
+      <div class="q-detail">
+        Quando a Malu te passa um cliente, em quanto tempo você consegue responder?
+        15 minutos? 1 hora? No mesmo dia? Vamos configurar pra ela mandar um aviso
+        automático ao cliente se você demorar mais do que o prometido.
+      </div>
+    </li>
+    <li>
+      <div class="q">Quem vai ter acesso ao painel além de você?</div>
+      <div class="q-detail">
+        Você quer dar acesso a alguém? Outro atendente, contador, sócio? A gente
+        configura os acessos quando você quiser.
+      </div>
+    </li>
+  </ul>
+</section>
+
+<!-- ================================ INVESTIMENTO ================================ -->
+<section>
+  <h2>Investimento mensal estimado</h2>
+  <p class="lede">
+    Custos das ferramentas que sustentam o sistema. Hoje está tudo gratuito (versões de teste).
+    Quando entrar em produção real, a estimativa fica entre R$ 30 e R$ 60 por mês — e cresce conforme
+    o volume de clientes.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Item</th>
+        <th>Pra quê</th>
+        <th>Custo mensal estimado</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>WhatsApp Business (oficial Meta)</td>
+        <td>Conexão segura com seu WhatsApp</td>
+        <td>Grátis até 1.000 conversas/mês</td>
+      </tr>
+      <tr>
+        <td>Inteligência artificial (Google)</td>
+        <td>O cérebro que faz a Malu entender e responder</td>
+        <td>Grátis até atingir limite; depois ~R$ 5–10</td>
+      </tr>
+      <tr>
+        <td>IA reserva (em caso de pico)</td>
+        <td>Backup automático se a principal falhar</td>
+        <td>Grátis</td>
+      </tr>
+      <tr>
+        <td>Banco de dados na nuvem</td>
+        <td>Guarda leads, conversas, reservas</td>
+        <td>Grátis no início; ~US$ 25 (~R$ 130) quando crescer</td>
+      </tr>
+      <tr>
+        <td>Hospedagem do sistema</td>
+        <td>Pra ficar no ar 24h pra seus clientes</td>
+        <td>~US$ 5–10 (~R$ 25–50)</td>
+      </tr>
+      <tr class="total">
+        <td>Total estimado (início)</td>
+        <td>—</td>
+        <td>R$ 30–60 / mês</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout info">
+    <strong>Nota importante.</strong> Esses valores são apenas das ferramentas técnicas que o
+    sistema usa por debaixo dos panos. O serviço de desenvolvimento (criar, manter, evoluir o
+    sistema) é uma conversa separada, que vamos ter quando estiver perto do lançamento.
+  </div>
+</section>
+
+<!-- ================================ ESTADO AGORA ================================ -->
+<section>
+  <h2>Resumindo o estado agora</h2>
+
+  <div class="card">
+    <ul class="features">
+      <li class="done">
+        <span class="marker"></span>
+        <span class="text"><strong>A Malu já funciona como bot.</strong>
+        <small>Atende, coleta, gera briefing, lembra cliente parado, reconhece cliente existente. Testada com simulações de 8 turnos de conversa.</small></span>
+        <span class="badge badge-ok">pronto</span>
+      </li>
+      <li class="done">
+        <span class="marker"></span>
+        <span class="text"><strong>O painel existe visualmente.</strong>
+        <small>As telas estão desenhadas e navegáveis, com dados de exemplo. Falta plugar nos dados reais — o que estamos fazendo agora.</small></span>
+        <span class="badge badge-ok">pronto</span>
+      </li>
+      <li class="doing">
+        <span class="marker"></span>
+        <span class="text"><strong>Conectando o painel à Malu.</strong>
+        <small>Em andamento esta semana. Quando terminar, tudo que a Malu fizer vai aparecer no painel sem você precisar fazer nada.</small></span>
+        <span class="badge badge-warn">esta semana</span>
+      </li>
+      <li class="todo">
+        <span class="marker"></span>
+        <span class="text"><strong>Falta colocar no ar pra você testar.</strong>
+        <small>Hoje roda só no nosso computador. Depois da conexão acabar, subimos pra internet e te damos um link pra você acessar de qualquer lugar.</small></span>
+        <span class="badge badge-pending">próximas 2 semanas</span>
+      </li>
+      <li class="todo">
+        <span class="marker"></span>
+        <span class="text"><strong>Validação com você + ajustes.</strong>
+        <small>Você usa, dá feedback, refinamos. Depois disso, lançamos com seus clientes reais.</small></span>
+        <span class="badge badge-pending">depois disso</span>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================================ FOOTER ================================ -->
+<footer>
+  <p>
+    Esse documento é vivo. Conforme a gente avança, ele é atualizado — sempre na
+    linguagem mais clara possível. Se algo aqui não fez sentido ou se tem alguma
+    pergunta, é só chamar.
+  </p>
+  <p style="color:var(--ink-soft);font-size:12.5px;margin-top:16px">
+    Última atualização: 02 de junho de 2026 · Próxima revisão prevista: quando a Etapa 3 fechar.
+  </p>
+</footer>
+
+</main>
+</body>
+</html>

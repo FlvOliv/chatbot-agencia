@@ -19,6 +19,8 @@ os.environ.setdefault(
 )
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("AI_PRIMARY", "gemini")
+os.environ.setdefault("CRM_API_KEY", "test-api-key-123")
+os.environ.setdefault("CRM_CORS_ORIGINS", "http://localhost:3000")
 os.environ.setdefault("AI_FALLBACK", "none")
 os.environ.setdefault("APP_ENV", "development")
 

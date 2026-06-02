@@ -59,6 +59,16 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO")
     session_ttl_seconds: int = Field(default=86400)
 
+    # CRM API (consumida pelo frontend Next.js)
+    crm_api_key: str = Field(
+        default="",
+        description="API key compartilhada — header X-API-Key nas rotas /api/*",
+    )
+    crm_cors_origins: str = Field(
+        default="http://localhost:3000",
+        description="Origens permitidas no CORS, separadas por vírgula",
+    )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

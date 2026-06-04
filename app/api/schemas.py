@@ -128,3 +128,40 @@ class DashboardMetrics(BaseModel):
     pending_for_lu: int
     reservas_ativas: int
     by_temperature: dict[str, int]  # {"frio": N, "morno": N, "quente": N, "urgente": N}
+
+
+# ---------------------------------------------------------------------------
+# Insights — séries temporais e agregados para o Painel de Insights
+# ---------------------------------------------------------------------------
+class DailyCount(BaseModel):
+    """Contagem de eventos em um único dia (ISO YYYY-MM-DD)."""
+    date: date
+    count: int
+
+
+class TopDestination(BaseModel):
+    destination: str
+    count: int
+    pct: float  # 0..1 — fatia em relação ao total dos top N
+
+
+class HourlyBucket(BaseModel):
+    hour: int = Field(ge=0, le=23)
+    count: int
+
+
+class ConversionRate(BaseModel):
+    conversations_started: int
+    leads_generated: int
+    rate: float  # 0..1
+
+
+class DashboardInsights(BaseModel):
+    range_days: int
+    generated_at: datetime
+    conversations_per_day: list[DailyCount]
+    leads_per_day: list[DailyCount]
+    top_destinations: list[TopDestination]
+    hourly_distribution: list[HourlyBucket]
+    conversion_rate: ConversionRate
+    ai_provider_breakdown: dict[str, int]  # {"gemini": N, "groq": N, "unknown": N}

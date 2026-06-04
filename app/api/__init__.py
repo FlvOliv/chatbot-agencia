@@ -9,6 +9,7 @@ Estrutura:
     /api/reservas             — lista de reservas
     /api/reservas             — POST criar nova reserva (manual pela Lu)
     /api/dashboard/metrics    — métricas agregadas pro dashboard
+    /api/dashboard/insights   — séries temporais e agregados (Painel de Insights)
 """
 
 from __future__ import annotations

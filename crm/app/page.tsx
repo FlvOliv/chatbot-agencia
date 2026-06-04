@@ -1,33 +1,35 @@
 import Link from "next/link";
 import { ArrowRight, Info } from "lucide-react";
-import { getDashboardMetrics, listLeads } from "@/lib/api";
+import {
+  getDashboardInsights,
+  getDashboardMetrics,
+  listLeads,
+} from "@/lib/api";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { ConversationsChart } from "@/components/dashboard/conversations-chart";
 import { TemperatureChart } from "@/components/dashboard/temperature-chart";
+import { TopDestinations } from "@/components/dashboard/top-destinations";
 import { RecentLeadCard } from "@/components/dashboard/recent-lead-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const dynamic = "force-dynamic";
 
-function buildSevenDaySeries(weeklyTotal: number) {
-  // Backend não expõe ainda série diária — distribuímos o total semanal
-  // com leve ponderação ascendente para algo plausível visualmente.
-  const labels = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
-  const weights = [0.10, 0.12, 0.13, 0.14, 0.16, 0.18, 0.17];
-  const now = new Date();
-  const todayIdx = (now.getDay() + 6) % 7; // 0=Seg
-  return labels.map((day, i) => {
-    const ordered = labels[(todayIdx - (labels.length - 1 - i) + labels.length) % labels.length];
-    return {
-      day: ordered,
-      conversas: Math.max(0, Math.round(weeklyTotal * weights[i])),
-    };
+const WEEKDAY_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+
+function dailyToSeries(daily: { date: string; count: number }[]) {
+  return daily.map((d) => {
+    const parsed = new Date(`${d.date}T00:00:00`);
+    const label = Number.isNaN(parsed.getTime())
+      ? d.date
+      : WEEKDAY_PT[parsed.getDay()];
+    return { day: label, conversas: d.count };
   });
 }
 
 export default async function DashboardPage() {
-  const [metrics, recent] = await Promise.all([
+  const [metrics, insights, recent] = await Promise.all([
     getDashboardMetrics(),
+    getDashboardInsights(7),
     listLeads({ page: 1, page_size: 5 }),
   ]);
 
@@ -38,7 +40,9 @@ export default async function DashboardPage() {
     urgente: 0,
   };
   const hotCount = (byTemp.quente ?? 0) + (byTemp.urgente ?? 0);
-  const series = buildSevenDaySeries(metrics?.leads_week ?? 0);
+  const series = insights ? dailyToSeries(insights.conversations_per_day) : [];
+  const conv = insights?.conversion_rate;
+  const convPct = conv ? Math.round(conv.rate * 100) : null;
 
   return (
     <div className="space-y-6">
@@ -90,14 +94,9 @@ export default async function DashboardPage() {
       <section className="grid gap-4 lg:grid-cols-2">
         <Card className="border-zinc-200 dark:border-zinc-800 shadow-none">
           <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-semibold">
-                Conversas nos últimos 7 dias
-              </CardTitle>
-              <span className="text-[10px] uppercase tracking-wide text-zinc-400">
-                dados parciais
-              </span>
-            </div>
+            <CardTitle className="text-sm font-semibold">
+              Conversas nos últimos 7 dias
+            </CardTitle>
           </CardHeader>
           <CardContent className="text-zinc-700 dark:text-zinc-300">
             <ConversationsChart data={series} />
@@ -112,6 +111,20 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent>
             <TemperatureChart data={byTemp} />
+          </CardContent>
+        </Card>
+      </section>
+
+      {/* Top destinations */}
+      <section>
+        <Card className="border-zinc-200 dark:border-zinc-800 shadow-none">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">
+              Destinos mais pedidos (7d)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <TopDestinations data={insights?.top_destinations ?? []} />
           </CardContent>
         </Card>
       </section>
@@ -142,6 +155,13 @@ export default async function DashboardPage() {
           </div>
         )}
       </section>
+
+      {conv && convPct !== null && (
+        <p className="pt-2 text-center text-xs text-zinc-500 dark:text-zinc-400 tabular-nums">
+          {convPct}% conversão · {conv.conversations_started} conversas ·{" "}
+          {conv.leads_generated} briefings
+        </p>
+      )}
     </div>
   );
 }

@@ -58,6 +58,7 @@ export function LeadsFilters() {
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
         <Input
           placeholder="Buscar por nome ou telefone"
+          aria-label="Buscar leads por nome ou telefone"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           className="pl-9 h-11"
@@ -65,7 +66,10 @@ export function LeadsFilters() {
         />
       </div>
       <Select value={temp} onValueChange={changeTemp}>
-        <SelectTrigger className="h-11 sm:w-56">
+        <SelectTrigger
+          aria-label="Filtrar leads por temperatura"
+          className="h-11 sm:w-56"
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

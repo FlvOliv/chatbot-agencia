@@ -4,6 +4,7 @@ import type {
   ConversationDetail,
   DashboardInsights,
   DashboardMetrics,
+  HealthStatus,
   LeadDetail,
   LeadListResponse,
   LeadTemp,
@@ -63,8 +64,23 @@ export async function getDashboardInsights(
       `/dashboard/insights?days=${days}`,
     );
   } catch (err) {
-    console.warn("[api] getDashboardInsights", err);
+    console.error("[api] getDashboardInsights", err);
     return null;
+  }
+}
+
+export async function getHealthStatus(): Promise<HealthStatus> {
+  try {
+    const url = `${API_BASE_URL}/health`;
+    const r = await fetch(url, {
+      signal: AbortSignal.timeout(3000),
+      cache: "no-store",
+    });
+    if (r.ok) return "ok";
+    if (r.status >= 500) return "degraded";
+    return "down";
+  } catch {
+    return "down";
   }
 }
 

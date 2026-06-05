@@ -39,7 +39,7 @@ export default async function DashboardPage() {
     quente: 0,
     urgente: 0,
   };
-  const hotCount = (byTemp.quente ?? 0) + (byTemp.urgente ?? 0);
+  const pending = metrics?.pending_for_lu ?? 0;
   const series = insights ? dailyToSeries(insights.conversations_per_day) : [];
   const conv = insights?.conversion_rate;
   const convPct = conv ? Math.round(conv.rate * 100) : null;
@@ -58,25 +58,25 @@ export default async function DashboardPage() {
       {/* KPIs */}
       <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <KpiCard
-          label="Conversas hoje"
-          value={metrics?.active_conversations ?? 0}
-          helper="últimas 24h"
-        />
-        <KpiCard
-          label="Leads gerados"
+          label="Leads de hoje"
           value={metrics?.leads_today ?? 0}
           helper="briefings prontos"
         />
         <KpiCard
-          label="Quentes + urgentes"
-          value={hotCount}
-          accent={hotCount > 0 ? "emerald" : "neutral"}
-          helper="aguardando você"
+          label="Aguardando você"
+          value={pending}
+          accent={pending > 0 ? "emerald" : "neutral"}
+          helper="quente + urgente"
         />
         <KpiCard
           label="Ativas agora"
           value={metrics?.active_conversations ?? 0}
-          helper="clientes em conversa"
+          helper="últimas 24h"
+        />
+        <KpiCard
+          label="Da semana"
+          value={metrics?.leads_week ?? 0}
+          helper="leads gerados"
         />
       </section>
 

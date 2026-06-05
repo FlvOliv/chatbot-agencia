@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { formatPhone } from "@/lib/format";
+import { getHealthStatus } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -10,12 +11,32 @@ function readEnv(key: string, fallback = ""): string {
   return process.env[key] ?? fallback;
 }
 
-export default function ConfiguracoesPage() {
+export default async function ConfiguracoesPage() {
   const lucianaPhone = readEnv("NEXT_PUBLIC_LUCIANA_PHONE", "");
-  const aiPrimary = readEnv("NEXT_PUBLIC_AI_PRIMARY", "claude");
-  const aiFallback = readEnv("NEXT_PUBLIC_AI_FALLBACK", "gemma");
+  const aiPrimary = readEnv("NEXT_PUBLIC_AI_PRIMARY", "gemini");
+  const aiFallback = readEnv("NEXT_PUBLIC_AI_FALLBACK", "groq");
   const bhStart = readEnv("NEXT_PUBLIC_BUSINESS_HOURS_START", "9");
   const bhEnd = readEnv("NEXT_PUBLIC_BUSINESS_HOURS_END", "18");
+
+  const health = await getHealthStatus();
+  const statusColor =
+    health === "ok"
+      ? "fill-emerald-500 text-emerald-500"
+      : health === "degraded"
+        ? "fill-amber-500 text-amber-500"
+        : "fill-rose-500 text-rose-500";
+  const statusLabel =
+    health === "ok"
+      ? "Online"
+      : health === "degraded"
+        ? "Instável"
+        : "Offline";
+  const statusHint =
+    health === "ok"
+      ? "Backend respondeu agora há pouco"
+      : health === "degraded"
+        ? "Backend respondeu, mas com erro"
+        : "Backend não respondeu";
 
   return (
     <div className="space-y-6">
@@ -34,12 +55,17 @@ export default function ConfiguracoesPage() {
             <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
               Status do bot
             </h2>
-            <div className="mt-3 flex items-center justify-between">
+            <div className="mt-3 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <Circle className="size-2.5 fill-emerald-500 text-emerald-500" strokeWidth={0} />
-                <span className="text-sm font-medium">Online</span>
+                <Circle
+                  className={`size-2.5 ${statusColor}`}
+                  strokeWidth={0}
+                />
+                <span className="text-sm font-medium">{statusLabel}</span>
               </div>
-              <span className="text-xs text-zinc-500">Última atividade: agora</span>
+              <span className="text-xs text-zinc-500 text-right">
+                {statusHint}
+              </span>
             </div>
           </section>
 
@@ -81,7 +107,7 @@ export default function ConfiguracoesPage() {
       </Card>
 
       <p className="text-center text-[11px] text-zinc-400">
-        Malu · Painel de insights v0.1
+        Painel da Malu · v0.1
       </p>
     </div>
   );

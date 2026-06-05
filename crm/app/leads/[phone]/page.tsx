@@ -4,17 +4,20 @@ import { ArrowLeft, Phone } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { getConversation, getLead } from "@/lib/api";
 import { TempBadge } from "@/components/temp-badge";
-import { MarkHandled } from "@/components/leads/mark-handled";
 import { MessageBubble } from "@/components/leads/message-bubble";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatPhone } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-export default async function LeadDetailPage(
-  props: PageProps<"/leads/[phone]">,
-) {
-  const { phone } = await props.params;
+type LeadDetailParams = Promise<{ phone: string }>;
+
+export default async function LeadDetailPage({
+  params,
+}: {
+  params: LeadDetailParams;
+}) {
+  const { phone } = await params;
   const decoded = decodeURIComponent(phone);
 
   const [detail, conversation] = await Promise.all([
@@ -58,8 +61,6 @@ export default async function LeadDetailPage(
             )}
           </p>
         </div>
-
-        <MarkHandled />
       </div>
 
       {/* Briefing */}

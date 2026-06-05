@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { SiteShell } from "@/components/site-shell";
+import { getHealthStatus } from "@/lib/api";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -25,18 +26,20 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const healthStatus = await getHealthStatus();
+
   return (
     <html
       lang="pt-BR"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full">
-        <SiteShell>{children}</SiteShell>
+        <SiteShell status={healthStatus}>{children}</SiteShell>
       </body>
     </html>
   );

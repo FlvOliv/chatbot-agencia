@@ -1,5 +1,7 @@
 export type LeadTemp = "frio" | "morno" | "quente" | "urgente";
 
+export type HealthStatus = "ok" | "degraded" | "down";
+
 export interface ClienteOut {
   phone: string;
   profile_name: string | null;

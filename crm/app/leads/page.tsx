@@ -15,10 +15,18 @@ function asTemp(v: string | undefined): LeadTemp | undefined {
   return TEMP_VALUES.includes(v as LeadTemp) ? (v as LeadTemp) : undefined;
 }
 
-export default async function LeadsPage(
-  props: PageProps<"/leads">,
-) {
-  const sp = await props.searchParams;
+type LeadsSearchParams = Promise<{
+  temp?: string | string[];
+  q?: string | string[];
+  page_size?: string | string[];
+}>;
+
+export default async function LeadsPage({
+  searchParams,
+}: {
+  searchParams: LeadsSearchParams;
+}) {
+  const sp = await searchParams;
   const temp = asTemp(typeof sp.temp === "string" ? sp.temp : undefined);
   const q = typeof sp.q === "string" ? sp.q : undefined;
   const pageSizeRaw = typeof sp.page_size === "string" ? Number(sp.page_size) : 20;

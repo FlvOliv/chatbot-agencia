@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, Users, Settings, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { HealthStatus } from "@/lib/types";
 
 const NAV = [
   { href: "/", label: "Início", icon: Home },
@@ -16,12 +17,18 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function SiteShell({ children }: { children: React.ReactNode }) {
+export function SiteShell({
+  children,
+  status,
+}: {
+  children: React.ReactNode;
+  status: HealthStatus;
+}) {
   const pathname = usePathname();
 
   return (
     <div className="min-h-dvh flex flex-col bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
-      <Header />
+      <Header status={status} />
 
       <div className="flex flex-1 w-full">
         <aside className="hidden lg:flex w-[60px] shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex-col items-center py-4 gap-1 sticky top-14 self-start h-[calc(100dvh-3.5rem)]">
@@ -58,20 +65,15 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Header() {
-  const status: "online" | "degraded" | "offline" = "online";
+function Header({ status }: { status: HealthStatus }) {
   const statusColor =
-    status === "online"
+    status === "ok"
       ? "fill-emerald-500 text-emerald-500"
       : status === "degraded"
         ? "fill-amber-500 text-amber-500"
         : "fill-rose-500 text-rose-500";
   const statusLabel =
-    status === "online"
-      ? "Online"
-      : status === "degraded"
-        ? "Instável"
-        : "Offline";
+    status === "ok" ? "Online" : status === "degraded" ? "Instável" : "Offline";
 
   return (
     <header className="sticky top-0 z-30 h-14 border-b border-zinc-200 dark:border-zinc-800 bg-white/90 dark:bg-zinc-950/90 backdrop-blur supports-[backdrop-filter]:bg-white/70">
@@ -91,9 +93,9 @@ function Header() {
           <Link
             href="/configuracoes"
             aria-label="Configurações"
-            className="size-9 grid place-items-center rounded-md text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
+            className="size-11 grid place-items-center rounded-md text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
           >
-            <Settings className="size-4" />
+            <Settings className="size-5" />
           </Link>
         </div>
       </div>

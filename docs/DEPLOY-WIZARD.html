@@ -1,0 +1,902 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Malu — Wizard de Deploy</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --surface: #ffffff;
+    --border: #e4e4e7;
+    --border-strong: #d4d4d8;
+    --ink: #18181b;
+    --ink-mute: #52525b;
+    --ink-soft: #71717a;
+    --accent: #18181b;
+    --accent-soft: #f4f4f5;
+    --ok: #15803d;
+    --ok-bg: #f0fdf4;
+    --doing: #b45309;
+    --doing-bg: #fffbeb;
+    --code-bg: #f4f4f5;
+    --code-border: #e4e4e7;
+    --link: #1d4ed8;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Geist", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  main {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: clamp(20px, 4vw, 48px) clamp(16px, 3vw, 28px) 80px;
+  }
+
+  /* Header sticky com progresso */
+  .sticky-header {
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 10;
+    padding: 16px 0 14px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .header-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 14px; flex-wrap: wrap;
+  }
+  .header-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0;
+  }
+  .header-title .label {
+    color: var(--ink-soft);
+    font-weight: 400;
+    margin-left: 6px;
+  }
+  .progress-track {
+    width: 100%;
+    height: 4px;
+    background: var(--border);
+    border-radius: 999px;
+    margin-top: 12px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--ok);
+    border-radius: 999px;
+    width: 0%;
+    transition: width 0.3s ease;
+  }
+  .progress-label {
+    font-size: 12px;
+    color: var(--ink-soft);
+    font-variant-numeric: tabular-nums;
+  }
+  .reset-btn {
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    color: var(--ink-mute);
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .reset-btn:hover { background: var(--accent-soft); }
+
+  /* Doc header */
+  .doc-header {
+    margin-bottom: 32px;
+  }
+  .eyebrow {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ink-soft);
+    font-weight: 500;
+    margin-bottom: 8px;
+  }
+  h1 {
+    font-size: clamp(26px, 5vw, 34px);
+    line-height: 1.15;
+    margin: 0 0 10px;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+  }
+  .doc-sub {
+    color: var(--ink-mute);
+    margin: 0;
+    font-size: 16px;
+    max-width: 60ch;
+  }
+
+  /* Pré-requisitos */
+  .prereq {
+    background: var(--accent-soft);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 18px 22px;
+    margin-bottom: 32px;
+  }
+  .prereq h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+  .prereq ul { margin: 0; padding-left: 20px; color: var(--ink-mute); font-size: 14px; }
+  .prereq li { margin: 4px 0; }
+
+  /* Etapas */
+  .stage {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    margin-bottom: 16px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .stage.done {
+    border-color: #bbf7d0;
+    background: var(--ok-bg);
+  }
+  .stage-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .stage-num {
+    width: 28px; height: 28px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 600;
+    display: grid; place-items: center;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .stage.done .stage-num {
+    background: var(--ok);
+    color: white;
+  }
+  .stage-name {
+    flex: 1;
+    font-weight: 600;
+    font-size: 16px;
+  }
+  .stage-time {
+    color: var(--ink-soft);
+    font-size: 12px;
+    margin-right: 8px;
+  }
+  .stage-chev {
+    color: var(--ink-soft);
+    transition: transform 0.2s;
+  }
+  .stage.open .stage-chev { transform: rotate(180deg); }
+  .stage-body {
+    display: none;
+    padding: 0 20px 20px 60px;
+  }
+  .stage.open .stage-body { display: block; }
+  @media (max-width: 540px) {
+    .stage-body { padding: 0 16px 16px 16px; }
+  }
+
+  /* Steps individuais */
+  .step {
+    display: flex;
+    gap: 12px;
+    padding: 14px 0;
+    border-top: 1px solid var(--border);
+  }
+  .step:first-child { border-top: 0; padding-top: 6px; }
+  .step-check {
+    flex-shrink: 0;
+    width: 22px; height: 22px;
+    border: 2px solid var(--border-strong);
+    border-radius: 6px;
+    cursor: pointer;
+    margin-top: 2px;
+    background: white;
+    transition: all 0.15s;
+    display: grid; place-items: center;
+  }
+  .step-check:hover { border-color: var(--ink-mute); }
+  .step-check.checked {
+    background: var(--ok);
+    border-color: var(--ok);
+  }
+  .step-check.checked::after {
+    content: "✓";
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+  }
+  .step-content { flex: 1; min-width: 0; }
+  .step-content.struck { color: var(--ink-soft); text-decoration: line-through; text-decoration-color: var(--border-strong); }
+  .step-title {
+    font-weight: 500;
+    margin-bottom: 4px;
+    font-size: 15px;
+  }
+  .step-desc {
+    color: var(--ink-mute);
+    font-size: 14px;
+    margin-bottom: 8px;
+  }
+  .step-desc p { margin: 0 0 6px; }
+  .step-desc a { color: var(--link); text-decoration: none; word-break: break-all; }
+  .step-desc a:hover { text-decoration: underline; }
+
+  /* Bloco de código + botão copiar */
+  .code-block {
+    position: relative;
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    padding-right: 70px;
+    margin: 8px 0;
+    font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+    font-size: 13px;
+    color: var(--ink);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .copy-btn {
+    position: absolute;
+    top: 8px; right: 8px;
+    background: white;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: inherit;
+    color: var(--ink-mute);
+    transition: all 0.15s;
+  }
+  .copy-btn:hover { background: var(--accent-soft); color: var(--ink); }
+  .copy-btn.copied { color: var(--ok); border-color: var(--ok); }
+
+  /* Notas/avisos */
+  .callout {
+    background: var(--doing-bg);
+    border: 1px solid #fde68a;
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #78350f;
+    margin: 8px 0;
+  }
+  .callout strong { color: #92400e; }
+
+  /* Final */
+  .finale {
+    margin-top: 40px;
+    padding: 24px;
+    background: var(--ink);
+    color: white;
+    border-radius: var(--radius-lg);
+    text-align: center;
+  }
+  .finale h3 { margin: 0 0 8px; color: white; font-size: 18px; }
+  .finale p { margin: 0; color: rgba(255,255,255,0.85); font-size: 14px; }
+  .finale.celebrate { background: var(--ok); }
+
+  footer {
+    margin-top: 36px;
+    color: var(--ink-soft);
+    font-size: 12px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<main>
+
+<!-- ============ DOC HEADER ============ -->
+<div class="doc-header">
+  <div class="eyebrow">Wizard interativo · Marca cada passo conforme avança</div>
+  <h1>Deploy da Malu em produção</h1>
+  <p class="doc-sub">
+    Sequência completa pra tirar a Malu do laptop e colocar pra atender clientes
+    reais. Cada caixa marca progresso e salva no navegador — pode fechar e voltar.
+  </p>
+</div>
+
+<!-- ============ STICKY HEADER ============ -->
+<div class="sticky-header">
+  <div class="header-row">
+    <div>
+      <span class="header-title">Progresso<span class="label">— <span id="progress-label">0 de 0 passos</span></span></span>
+    </div>
+    <button class="reset-btn" id="reset-btn" title="Resetar todos os checkboxes">Resetar</button>
+  </div>
+  <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+</div>
+
+<!-- ============ PRÉ-REQUISITOS ============ -->
+<div class="prereq">
+  <h3>Antes de começar</h3>
+  <ul>
+    <li>Tudo localmente verde: <code>pytest tests/ -v</code> passa, <code>npm run build</code> no painel passa</li>
+    <li>main do GitHub atualizada com o painel mergeado</li>
+    <li>Contas criadas (ou prontas pra criar): <strong>Supabase</strong>, <strong>Upstash</strong>, <strong>Railway</strong>, <strong>Vercel</strong> — todas grátis pra começar</li>
+    <li>Privacy Policy publicada em algum URL (use <code>docs/PRIVACIDADE.html</code> via GitHub Pages se ainda não tem)</li>
+    <li>Tokens da Meta em mãos (WA_TOKEN permanente, WA_APP_SECRET, Phone Number ID, Verify Token)</li>
+  </ul>
+</div>
+
+<!-- ============ ETAPAS ============ -->
+<div id="stages">
+
+<!-- ETAPA 1: SUPABASE -->
+<section class="stage" data-stage="1">
+  <div class="stage-header">
+    <div class="stage-num">1</div>
+    <div class="stage-name">Supabase · Postgres na nuvem</div>
+    <div class="stage-time">~10 min</div>
+    <div class="stage-chev">▾</div>
+  </div>
+  <div class="stage-body">
+    <div class="step">
+      <div class="step-check" data-id="1.1"></div>
+      <div class="step-content">
+        <div class="step-title">Criar projeto Supabase</div>
+        <div class="step-desc">
+          <p>Abre <a href="https://supabase.com" target="_blank" rel="noopener">supabase.com</a> · <strong>Start your project</strong> · login com GitHub · <strong>New project</strong>.</p>
+          <p>Preenche:</p>
+          <ul>
+            <li><strong>Name:</strong> <code>malu-bot-producao</code></li>
+            <li><strong>Database Password:</strong> clica em "Generate" e <strong>salva em local seguro (1Password, gerenciador, etc.)</strong></li>
+            <li><strong>Region:</strong> South America (São Paulo)</li>
+            <li><strong>Pricing:</strong> Free</li>
+          </ul>
+          <p>Aguarda ~2 min provisionar.</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="1.2"></div>
+      <div class="step-content">
+        <div class="step-title">Pegar a connection string</div>
+        <div class="step-desc">
+          <p>Projeto criado → <strong>Settings (engrenagem) → Database</strong> → <strong>Connection string → URI</strong> → modo <strong>Session pooler</strong> (porta 5432).</p>
+          <p>Copia. Vai parecer:</p>
+          <div class="code-block">postgresql://postgres.xxxxx:[YOUR-PASSWORD]@aws-0-sa-east-1.pooler.supabase.com:5432/postgres</div>
+          <p>Substitui <code>[YOUR-PASSWORD]</code> pela senha salva no passo 1.1, e troca <code>postgresql://</code> por <code>postgresql+asyncpg://</code>:</p>
+          <div class="code-block">postgresql+asyncpg://postgres.xxxxx:SUASENHA@aws-0-sa-east-1.pooler.supabase.com:5432/postgres</div>
+          <p>Esse é o valor que vai pra <code>DATABASE_URL</code> no Railway (etapa 3).</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="1.3"></div>
+      <div class="step-content">
+        <div class="step-title">Habilitar pgcrypto</div>
+        <div class="step-desc">
+          <p>A migration <code>0001_initial</code> usa <code>gen_random_uuid()</code> que vem de <code>pgcrypto</code>.</p>
+          <p>Supabase → <strong>Database → Extensions</strong> → procura <code>pgcrypto</code> → clica em <strong>Enable</strong>.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ETAPA 2: UPSTASH -->
+<section class="stage" data-stage="2">
+  <div class="stage-header">
+    <div class="stage-num">2</div>
+    <div class="stage-name">Upstash · Redis serverless</div>
+    <div class="stage-time">~5 min</div>
+    <div class="stage-chev">▾</div>
+  </div>
+  <div class="stage-body">
+    <div class="step">
+      <div class="step-check" data-id="2.1"></div>
+      <div class="step-content">
+        <div class="step-title">Criar database Redis</div>
+        <div class="step-desc">
+          <p>Abre <a href="https://upstash.com" target="_blank" rel="noopener">upstash.com</a> · sign up com GitHub · <strong>Create Database</strong>.</p>
+          <p>Preenche:</p>
+          <ul>
+            <li><strong>Name:</strong> <code>malu-bot-prod</code></li>
+            <li><strong>Type:</strong> Regional (mais barato)</li>
+            <li><strong>Region:</strong> <code>sa-east-1</code> (São Paulo)</li>
+            <li><strong>TLS:</strong> ✅ Enabled (default — não desabilita)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="2.2"></div>
+      <div class="step-content">
+        <div class="step-title">Copiar a TLS URL</div>
+        <div class="step-desc">
+          <p>Database criado → aba <strong>Details</strong> → copia o <code>UPSTASH_REDIS_TLS_URL</code>.</p>
+          <p>Vai parecer:</p>
+          <div class="code-block">rediss://default:xxxxxxx@xxxxx.upstash.io:6379</div>
+          <p>Esse vai pra <code>REDIS_URL</code> no Railway. Repara no <code>rediss://</code> (com SS — TLS).</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ETAPA 3: RAILWAY WEB -->
+<section class="stage" data-stage="3">
+  <div class="stage-header">
+    <div class="stage-num">3</div>
+    <div class="stage-name">Railway · Service web (FastAPI)</div>
+    <div class="stage-time">~15 min</div>
+    <div class="stage-chev">▾</div>
+  </div>
+  <div class="stage-body">
+    <div class="step">
+      <div class="step-check" data-id="3.1"></div>
+      <div class="step-content">
+        <div class="step-title">Criar projeto Railway</div>
+        <div class="step-desc">
+          <p>Abre <a href="https://railway.app" target="_blank" rel="noopener">railway.app</a> · login com GitHub · <strong>New Project → Deploy from GitHub repo</strong>.</p>
+          <p>Autoriza acesso ao repo <code>gustavomarcelloprf/chatbot-agencia</code> e seleciona. Railway detecta o <code>Dockerfile</code> e começa o build (vai falhar por enquanto, só sem as vars).</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="3.2"></div>
+      <div class="step-content">
+        <div class="step-title">Adicionar variáveis de ambiente</div>
+        <div class="step-desc">
+          <p>No painel do projeto → <strong>Variables</strong> → cola tudo de uma vez (botão "Raw editor"):</p>
+          <div class="code-block">WA_TOKEN=&lt;token permanente da Meta&gt;
+WA_PHONE_ID=&lt;phone number id&gt;
+WA_VERIFY_TOKEN=&lt;sua string aleatória&gt;
+WA_APP_SECRET=&lt;app secret da Meta&gt;
+
+GEMINI_API_KEY=AIza...
+GEMINI_MODEL=gemini-2.5-flash
+GROQ_API_KEY=gsk_...
+GROQ_MODEL=llama-3.3-70b-versatile
+AI_PRIMARY=gemini
+AI_FALLBACK=auto
+
+DATABASE_URL=postgresql+asyncpg://postgres.xxxxx:SENHA@aws-0-sa-east-1.pooler.supabase.com:5432/postgres
+REDIS_URL=rediss://default:xxxxx@xxxxx.upstash.io:6379
+
+LUCIANA_PHONE=5511...
+BUSINESS_HOURS_START=9
+BUSINESS_HOURS_END=18
+
+APP_ENV=production
+LOG_LEVEL=INFO
+SESSION_TTL_SECONDS=86400
+
+CRM_API_KEY=&lt;gerar nova chave&gt;
+CRM_CORS_ORIGINS=https://placeholder.vercel.app
+
+WEB_CONCURRENCY=2
+WORKER_CONCURRENCY=2</div>
+          <p>Gera a <code>CRM_API_KEY</code> com:</p>
+          <div class="code-block">python -c "import secrets; print(secrets.token_urlsafe(32))"</div>
+          <p><strong>CRM_CORS_ORIGINS</strong> fica com placeholder agora — atualiza na etapa 6 com a URL real do Vercel.</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="3.3"></div>
+      <div class="step-content">
+        <div class="step-title">Confirmar build verde + gerar domínio público</div>
+        <div class="step-desc">
+          <p>Aba <strong>Deployments</strong> → aguarda 3-5 min até aparecer <code>Active</code>.</p>
+          <p>Aba <strong>Settings → Networking → Generate Domain</strong> → você ganha algo tipo <code>malu-bot.up.railway.app</code>.</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="3.4"></div>
+      <div class="step-content">
+        <div class="step-title">Testar /health</div>
+        <div class="step-desc">
+          <p>Do terminal:</p>
+          <div class="code-block">curl https://malu-bot.up.railway.app/health</div>
+          <p>Esperado: <code>{"status":"ok",...}</code></p>
+          <div class="callout">⚠️ Se voltar 500 ou timeout, abre <strong>Deployments → Logs</strong>. Erros comuns: <code>DATABASE_URL</code> sem <code>+asyncpg</code>, ou Supabase ainda inicializando.</div>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="3.5"></div>
+      <div class="step-content">
+        <div class="step-title">Testar endpoint de insights</div>
+        <div class="step-desc">
+          <div class="code-block">curl -H "X-API-Key: $CRM_API_KEY" "https://malu-bot.up.railway.app/api/dashboard/insights?days=7"</div>
+          <p>Esperado: JSON com <code>conversations_per_day</code>, <code>top_destinations</code>, etc. (vazio com banco novo, mas estrutura correta).</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ETAPA 4: RAILWAY WORKER -->
+<section class="stage" data-stage="4">
+  <div class="stage-header">
+    <div class="stage-num">4</div>
+    <div class="stage-name">Railway · Service worker (Celery)</div>
+    <div class="stage-time">~5 min</div>
+    <div class="stage-chev">▾</div>
+  </div>
+  <div class="stage-body">
+    <div class="step">
+      <div class="step-check" data-id="4.1"></div>
+      <div class="step-content">
+        <div class="step-title">Criar segundo service no mesmo projeto</div>
+        <div class="step-desc">
+          <p>No projeto Railway → botão <strong>+ New → GitHub Repo</strong> → mesmo repo.</p>
+          <p>Renomeia pra <code>malu-worker</code> em <strong>Settings → Service Name</strong>.</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="4.2"></div>
+      <div class="step-content">
+        <div class="step-title">Custom Start Command</div>
+        <div class="step-desc">
+          <p><strong>Settings → Deploy → Custom Start Command</strong>:</p>
+          <div class="code-block">./scripts/start_worker.sh</div>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="4.3"></div>
+      <div class="step-content">
+        <div class="step-title">Reference variables do service web</div>
+        <div class="step-desc">
+          <p>Em <strong>Variables</strong> do worker, clica <strong>Add Reference</strong> e seleciona <strong>todas</strong> as vars do service web. Importantes: <code>DATABASE_URL</code>, <code>REDIS_URL</code>, <code>WA_TOKEN</code>, <code>LUCIANA_PHONE</code>, <code>GEMINI_API_KEY</code>, <code>GROQ_API_KEY</code>.</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="4.4"></div>
+      <div class="step-content">
+        <div class="step-title">Confirmar worker rodando</div>
+        <div class="step-desc">
+          <p>Aba <strong>Deployments → Logs</strong> → deve aparecer:</p>
+          <div class="code-block">celery@malu-worker ready.</div>
+          <p>Worker não precisa de domínio público — só consome a fila Redis.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ETAPA 5: META -->
+<section class="stage" data-stage="5">
+  <div class="stage-header">
+    <div class="stage-num">5</div>
+    <div class="stage-name">Meta · Atualizar webhook</div>
+    <div class="stage-time">~5 min</div>
+    <div class="stage-chev">▾</div>
+  </div>
+  <div class="stage-body">
+    <div class="step">
+      <div class="step-check" data-id="5.1"></div>
+      <div class="step-content">
+        <div class="step-title">Trocar URL do webhook</div>
+        <div class="step-desc">
+          <p>Abre <a href="https://developers.facebook.com" target="_blank" rel="noopener">developers.facebook.com</a> · seu app · <strong>WhatsApp → Configuration</strong> · em Webhook clica <strong>Edit</strong>.</p>
+          <ul>
+            <li><strong>Callback URL:</strong> <code>https://malu-bot.up.railway.app/webhook</code></li>
+            <li><strong>Verify Token:</strong> mesmo de <code>WA_VERIFY_TOKEN</code></li>
+          </ul>
+          <p>Clica <strong>Verify and save</strong> — deve ficar verde.</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="5.2"></div>
+      <div class="step-content">
+        <div class="step-title">Garantir que `messages` está assinado</div>
+        <div class="step-desc">
+          <p>Em <strong>Webhook fields</strong>, marca <code>messages</code> (se já está marcado, deixa).</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="5.3"></div>
+      <div class="step-content">
+        <div class="step-title">Confirmar Publish (Live mode) se ainda não fez</div>
+        <div class="step-desc">
+          <p>Se o app ainda está em Development, sai pra Live agora — caso contrário só números na allowed list recebem resposta.</p>
+          <p>Topo da página do app → toggle <strong>App Mode</strong> → <strong>Live</strong>. Precisa ter Privacy Policy URL configurada (use <a href="https://gustavomarcelloprf.github.io/chatbot-agencia/docs/PRIVACIDADE.html" target="_blank" rel="noopener">a página estática que geramos</a>).</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ETAPA 6: VERCEL -->
+<section class="stage" data-stage="6">
+  <div class="stage-header">
+    <div class="stage-num">6</div>
+    <div class="stage-name">Vercel · Painel de insights</div>
+    <div class="stage-time">~15 min</div>
+    <div class="stage-chev">▾</div>
+  </div>
+  <div class="stage-body">
+    <div class="step">
+      <div class="step-check" data-id="6.1"></div>
+      <div class="step-content">
+        <div class="step-title">Import project no Vercel</div>
+        <div class="step-desc">
+          <p>Abre <a href="https://vercel.com" target="_blank" rel="noopener">vercel.com</a> · <strong>Add New → Project</strong> · importa o repo <code>gustavomarcelloprf/chatbot-agencia</code>.</p>
+          <p>Config:</p>
+          <ul>
+            <li><strong>Framework Preset:</strong> Next.js (auto-detectado)</li>
+            <li><strong>Root Directory:</strong> <code>crm/</code> ← importante!</li>
+            <li><strong>Node.js Version:</strong> 20.x ou 22.x</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="6.2"></div>
+      <div class="step-content">
+        <div class="step-title">Adicionar Environment Variables</div>
+        <div class="step-desc">
+          <p>Em <strong>Project Settings → Environment Variables</strong>:</p>
+          <div class="code-block">NEXT_PUBLIC_API_BASE_URL=https://malu-bot.up.railway.app
+CRM_API_KEY=&lt;mesma do Railway&gt;
+NEXT_PUBLIC_LUCIANA_PHONE=5511...
+NEXT_PUBLIC_AI_PRIMARY=gemini
+NEXT_PUBLIC_AI_FALLBACK=groq
+NEXT_PUBLIC_BUSINESS_HOURS_START=9
+NEXT_PUBLIC_BUSINESS_HOURS_END=18</div>
+          <div class="callout"><strong>Cuidado:</strong> <code>CRM_API_KEY</code> NÃO leva prefixo <code>NEXT_PUBLIC_</code> — ela é server-side only. Se vazar pro client, qualquer um lê leads.</div>
+          <p>Marca todas como Production + Preview (não Development).</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="6.3"></div>
+      <div class="step-content">
+        <div class="step-title">Deploy</div>
+        <div class="step-desc">
+          <p>Clica <strong>Deploy</strong>. Aguarda ~2-3 min. Copia o domínio gerado (algo tipo <code>https://chatbot-agencia.vercel.app</code>).</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="6.4"></div>
+      <div class="step-content">
+        <div class="step-title">Atualizar CORS no Railway</div>
+        <div class="step-desc">
+          <p>Volta no Railway → service web → <strong>Variables</strong> → edita <code>CRM_CORS_ORIGINS</code>:</p>
+          <div class="code-block">CRM_CORS_ORIGINS=https://chatbot-agencia.vercel.app</div>
+          <p>Save → redeploy automático.</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="6.5"></div>
+      <div class="step-content">
+        <div class="step-title">Validar painel</div>
+        <div class="step-desc">
+          <p>Abre <code>https://chatbot-agencia.vercel.app</code> no celular (de preferência) e no desktop.</p>
+          <p>Deve ver: dashboard com 4 KPIs, gráficos, leads (vazio se banco novo), configurações.</p>
+          <div class="callout">⚠️ Se algum bloco mostrar "—": abre DevTools → Network → procura erro de CORS ou 401. Geralmente é <code>CRM_API_KEY</code> divergente ou <code>CRM_CORS_ORIGINS</code> esquecido.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ETAPA 7: TESTE END-TO-END -->
+<section class="stage" data-stage="7">
+  <div class="stage-header">
+    <div class="stage-num">7</div>
+    <div class="stage-name">Validação end-to-end</div>
+    <div class="stage-time">~10 min</div>
+    <div class="stage-chev">▾</div>
+  </div>
+  <div class="stage-body">
+    <div class="step">
+      <div class="step-check" data-id="7.1"></div>
+      <div class="step-content">
+        <div class="step-title">Mandar mensagem real pelo WhatsApp</div>
+        <div class="step-desc">
+          <p>Do seu celular, manda uma mensagem qualquer pro número da Malu. Em &lt;10s deve chegar resposta.</p>
+          <p>Confere logs no Railway (service web → Deployments → Logs):</p>
+          <div class="code-block">INFO malu — incoming from 5511...: oi
+INFO httpx — POST .../messages "HTTP/1.1 200 OK"
+INFO malu — whatsapp send_message OK</div>
+          <div class="callout">⚠️ Se não responder e estiver em modo Development: o seu número precisa estar na "Allowed phone number list" da Meta. Se já está Live, deveria funcionar pra qualquer número.</div>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="7.2"></div>
+      <div class="step-content">
+        <div class="step-title">Completar uma cotação até o briefing</div>
+        <div class="step-desc">
+          <p>Continua a conversa fingindo cliente: passa destino, datas, número de pessoas. A Malu deve gerar o bloco <code>## Resumo da Solicitação de Cotação</code> no fim.</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="7.3"></div>
+      <div class="step-content">
+        <div class="step-title">Confirmar notificação chegou na Lu (você por enquanto)</div>
+        <div class="step-desc">
+          <p>Você (no número <code>LUCIANA_PHONE</code>) deve receber uma mensagem da Malu com o briefing.</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="7.4"></div>
+      <div class="step-content">
+        <div class="step-title">Conferir que apareceu no painel</div>
+        <div class="step-desc">
+          <p>Abre o painel Vercel no celular → dashboard → o lead deve aparecer em "Últimos leads", com temperatura. Click → abre o briefing.</p>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-check" data-id="7.5"></div>
+      <div class="step-content">
+        <div class="step-title">Backup do .env de produção</div>
+        <div class="step-desc">
+          <p>Copia todas as variáveis do Railway num arquivo seguro (1Password, gerenciador de senhas, ou arquivo cifrado local). Sem isso, recriar o deploy depois de perder a conta vira um inferno.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<!-- ============ FINALE ============ -->
+<div class="finale" id="finale">
+  <h3 id="finale-title">Bom deploy 🚢</h3>
+  <p id="finale-sub">Marca os passos conforme avança — o estado fica salvo no navegador.</p>
+</div>
+
+<footer>
+  Dúvida ou erro num passo: copia o erro e me manda. Não precisa terminar tudo de uma vez —
+  Supabase + Upstash são instantâneos e podem ficar dormindo até você voltar.
+</footer>
+
+</main>
+
+<script>
+(function () {
+  const STORAGE_KEY = "malu-deploy-wizard-v1";
+  const checkboxes = document.querySelectorAll(".step-check");
+  const stages = document.querySelectorAll(".stage");
+  const progressFill = document.getElementById("progress-fill");
+  const progressLabel = document.getElementById("progress-label");
+  const resetBtn = document.getElementById("reset-btn");
+  const finale = document.getElementById("finale");
+  const finaleTitle = document.getElementById("finale-title");
+  const finaleSub = document.getElementById("finale-sub");
+
+  // ---- Load state from localStorage ----
+  let state = {};
+  try {
+    state = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+  } catch (_) {
+    state = {};
+  }
+
+  function save() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (_) {}
+  }
+
+  // ---- Initial render ----
+  checkboxes.forEach((cb) => {
+    const id = cb.dataset.id;
+    if (state[id]) {
+      cb.classList.add("checked");
+      cb.parentElement.querySelector(".step-content").classList.add("struck");
+    }
+    cb.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const checked = cb.classList.toggle("checked");
+      cb.parentElement.querySelector(".step-content").classList.toggle("struck", checked);
+      state[id] = checked;
+      save();
+      updateProgress();
+    });
+  });
+
+  // ---- Expand/collapse stages ----
+  stages.forEach((stage) => {
+    const header = stage.querySelector(".stage-header");
+    header.addEventListener("click", () => stage.classList.toggle("open"));
+  });
+  // Abre etapa 1 por padrão
+  if (stages[0]) stages[0].classList.add("open");
+
+  // ---- Progress calc + stage.done ----
+  function updateProgress() {
+    const total = checkboxes.length;
+    let done = 0;
+    checkboxes.forEach((cb) => { if (cb.classList.contains("checked")) done++; });
+    const pct = total > 0 ? (done / total) * 100 : 0;
+    progressFill.style.width = pct + "%";
+    progressLabel.textContent = done + " de " + total + " passos";
+
+    // marca stage.done se TODOS os checks dela estão marcados
+    stages.forEach((stage) => {
+      const cbs = stage.querySelectorAll(".step-check");
+      const allDone = cbs.length > 0 && Array.from(cbs).every((c) => c.classList.contains("checked"));
+      stage.classList.toggle("done", allDone);
+    });
+
+    // finale
+    if (done === total && total > 0) {
+      finale.classList.add("celebrate");
+      finaleTitle.textContent = "🎉 Tudo verde — Malu em produção!";
+      finaleSub.textContent = "Próximo: monitorar logs nas primeiras 24h e marcar follow-ups (PR de testes, otimização de cache do /health, smoke test mobile).";
+    } else {
+      finale.classList.remove("celebrate");
+      finaleTitle.textContent = "Bom deploy 🚢";
+      finaleSub.textContent = "Marca os passos conforme avança — o estado fica salvo no navegador.";
+    }
+  }
+  updateProgress();
+
+  // ---- Reset ----
+  resetBtn.addEventListener("click", () => {
+    if (!confirm("Resetar todos os checkboxes? O progresso atual será perdido.")) return;
+    state = {};
+    save();
+    checkboxes.forEach((cb) => {
+      cb.classList.remove("checked");
+      cb.parentElement.querySelector(".step-content").classList.remove("struck");
+    });
+    updateProgress();
+  });
+
+  // ---- Copy buttons em code blocks ----
+  document.querySelectorAll(".code-block").forEach((block) => {
+    const btn = document.createElement("button");
+    btn.className = "copy-btn";
+    btn.textContent = "copiar";
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try {
+        await navigator.clipboard.writeText(block.textContent.trim());
+        btn.textContent = "copiado ✓";
+        btn.classList.add("copied");
+        setTimeout(() => {
+          btn.textContent = "copiar";
+          btn.classList.remove("copied");
+        }, 1500);
+      } catch (_) {
+        btn.textContent = "erro";
+      }
+    });
+    block.appendChild(btn);
+  });
+})();
+</script>
+</body>
+</html>

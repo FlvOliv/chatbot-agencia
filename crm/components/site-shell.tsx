@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Users, Settings, Circle } from "lucide-react";
+import { Home, Users, MessageCircle, Settings, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { HealthStatus } from "@/lib/types";
 
 const NAV = [
   { href: "/", label: "Início", icon: Home },
+  { href: "/conversas", label: "Conversas", icon: MessageCircle },
   { href: "/leads", label: "Leads", icon: Users },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
@@ -106,7 +107,7 @@ function Header({ status }: { status: HealthStatus }) {
 function BottomNav({ pathname }: { pathname: string }) {
   return (
     <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 h-16 border-t border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
-      <ul className="grid grid-cols-3 h-full">
+      <ul className="grid grid-cols-4 h-full">
         {NAV.map(({ href, label, icon: Icon }) => {
           const active = isActive(pathname, href);
           return (

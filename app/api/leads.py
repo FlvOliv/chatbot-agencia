@@ -35,7 +35,7 @@ async def list_leads(
     """Lista paginada de leads, com filtro opcional de temperatura e busca."""
     base = select(Lead)
 
-    if temp:
+    if temp and temp.lower() != "all":
         base = base.where(Lead.lead_temp == temp.lower())
 
     if q:

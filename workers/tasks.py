@@ -26,10 +26,24 @@ from app.whatsapp import send_message
 
 logger = logging.getLogger(__name__)
 
+def _broker_url(url: str) -> str:
+    """Celery/kombu exige `ssl_cert_reqs` explícito em URLs rediss:// (TLS).
+
+    Sem isso, `apply_async` quebra com ValueError. Upstash tem certificado
+    válido, então CERT_REQUIRED é seguro.
+    """
+    if url.startswith("rediss://") and "ssl_cert_reqs" not in url:
+        sep = "&" if "?" in url else "?"
+        return f"{url}{sep}ssl_cert_reqs=CERT_REQUIRED"
+    return url
+
+
+_BROKER_URL = _broker_url(settings.redis_url)
+
 celery_app = Celery(
     "malu",
-    broker=settings.redis_url,
-    backend=settings.redis_url,
+    broker=_BROKER_URL,
+    backend=_BROKER_URL,
 )
 
 celery_app.conf.update(

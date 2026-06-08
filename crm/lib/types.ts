@@ -58,6 +58,26 @@ export interface ConversationDetail {
   messages: MessageOut[];
 }
 
+export interface ConversationSummary {
+  phone: string;
+  customer_name: string | null;
+  last_message_at: string;
+  last_message_preview: string;
+  message_count: number;
+  lead_temp: LeadTemp | null;
+}
+
+export interface ConversationState {
+  phone: string;
+  bot_paused: boolean;
+}
+
+export interface ReplyResult {
+  phone: string;
+  sent: boolean;
+  error: string | null;
+}
+
 export interface DashboardMetrics {
   leads_today: number;
   leads_week: number;

@@ -7,8 +7,13 @@ sai pra fora. Mudança no banco não vaza pro frontend sem ajuste explícito.
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+
+# IDs no banco são UUID; o Pydantic v2 não coage UUID->str sozinho.
+# Este tipo garante que qualquer id vire string na serialização.
+StrId = Annotated[str, BeforeValidator(lambda v: str(v))]
 
 
 # ---------------------------------------------------------------------------
@@ -27,7 +32,7 @@ class ClienteOut(BaseModel):
 # ---------------------------------------------------------------------------
 class LeadOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-    id: str
+    id: StrId
     phone: str
     name: str | None = None
     destination: str | None = None
@@ -41,7 +46,7 @@ class LeadOut(BaseModel):
 class LeadListItem(BaseModel):
     """Versão enxuta — usada na tabela de leads, sem o briefing inteiro."""
     model_config = ConfigDict(from_attributes=True)
-    id: str
+    id: StrId
     phone: str
     name: str | None = None
     destination: str | None = None
@@ -70,7 +75,7 @@ class MessageOut(BaseModel):
     # protected_namespaces=() pra permitir o campo `model_used` (que conflitaria
     # com o prefixo reservado `model_*` do Pydantic v2)
     model_config = ConfigDict(from_attributes=True, protected_namespaces=())
-    id: str
+    id: StrId
     phone: str
     role: str
     content: str
@@ -99,7 +104,7 @@ class ConversationDetail(BaseModel):
 # ---------------------------------------------------------------------------
 class ReservaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-    id: str
+    id: StrId
     phone: str
     codigo_reserva: str | None = None
     destino: str | None = None

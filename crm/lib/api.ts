@@ -2,6 +2,8 @@ import "server-only";
 
 import type {
   ConversationDetail,
+  ConversationState,
+  ConversationSummary,
   DashboardInsights,
   DashboardMetrics,
   HealthStatus,
@@ -126,9 +128,38 @@ export async function getConversation(
   try {
     return await apiFetch<ConversationDetail>(
       `/conversations/${encodeURIComponent(phone)}?limit=${limit}`,
+      { revalidate: 0 },
     );
   } catch (err) {
     console.error("[api] getConversation", err);
     return null;
+  }
+}
+
+export async function listConversations(
+  limit = 50,
+): Promise<ConversationSummary[]> {
+  try {
+    return await apiFetch<ConversationSummary[]>(
+      `/conversations?limit=${limit}`,
+      { revalidate: 5 },
+    );
+  } catch (err) {
+    console.error("[api] listConversations", err);
+    return [];
+  }
+}
+
+export async function getConversationState(
+  phone: string,
+): Promise<ConversationState> {
+  try {
+    return await apiFetch<ConversationState>(
+      `/conversations/${encodeURIComponent(phone)}/state`,
+      { revalidate: 0 },
+    );
+  } catch (err) {
+    console.error("[api] getConversationState", err);
+    return { phone, bot_paused: false };
   }
 }

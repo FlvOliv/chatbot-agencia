@@ -6,10 +6,19 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pydantic import BaseModel, Field
+
 from app.api.auth import require_api_key
 from app.api.schemas import ConversationDetail, ConversationSummary, MessageOut
 from app.database import get_session
 from app.models import Cliente, Conversation, Lead
+from app.session import (
+    STATE_TRANSFERRED,
+    clear_state,
+    get_state,
+    set_state,
+)
+from app.whatsapp import send_message
 
 router = APIRouter(
     prefix="/conversations",
@@ -100,3 +109,79 @@ async def get_conversation(
         customer_name=cliente.display_name if cliente else None,
         messages=[MessageOut.model_validate(m) for m in messages],
     )
+
+
+# ---------------------------------------------------------------------------
+# Atendimento humano (Caminho A) — assumir / devolver / responder
+# ---------------------------------------------------------------------------
+class StateOut(BaseModel):
+    phone: str
+    bot_paused: bool
+
+
+class ReplyIn(BaseModel):
+    text: str = Field(min_length=1, max_length=4096)
+
+
+class ReplyOut(BaseModel):
+    phone: str
+    sent: bool
+    error: str | None = None
+
+
+@router.get("/{phone}/state", response_model=StateOut)
+async def conversation_state(phone: str) -> StateOut:
+    """Diz se o bot está pausado (humano assumiu) nessa conversa."""
+    state = await get_state(phone)
+    return StateOut(phone=phone, bot_paused=state == STATE_TRANSFERRED)
+
+
+@router.post("/{phone}/takeover", response_model=StateOut)
+async def takeover(phone: str) -> StateOut:
+    """A Lu assume a conversa — a Malu para de responder automaticamente."""
+    await set_state(phone, STATE_TRANSFERRED)
+    return StateOut(phone=phone, bot_paused=True)
+
+
+@router.post("/{phone}/release", response_model=StateOut)
+async def release(phone: str) -> StateOut:
+    """Devolve a conversa pra Malu — o bot volta a responder."""
+    await clear_state(phone)
+    return StateOut(phone=phone, bot_paused=False)
+
+
+@router.post("/{phone}/reply", response_model=ReplyOut)
+async def human_reply(
+    phone: str,
+    body: ReplyIn,
+    db: AsyncSession = Depends(get_session),
+) -> ReplyOut:
+    """A Lu manda uma mensagem pro cliente PELO número da Malu.
+
+    Garante o estado 'transferido' (bot calado), grava a mensagem no
+    histórico e tenta enviar pela Cloud API. Requer número WhatsApp válido
+    pra entregar de verdade.
+    """
+    await set_state(phone, STATE_TRANSFERRED)
+
+    # Grava a mensagem da Lu no histórico (marcada como 'human')
+    db.add(
+        Conversation(
+            phone=phone,
+            role="assistant",
+            content=body.text,
+            model_used="human",
+        )
+    )
+    await db.commit()
+
+    sent = False
+    error: str | None = None
+    try:
+        sent = await send_message(phone, body.text)
+        if not sent:
+            error = "Meta recusou o envio (número/permissão). Veja os logs."
+    except Exception as exc:  # noqa: BLE001
+        error = f"Falha no envio: {exc}"
+
+    return ReplyOut(phone=phone, sent=sent, error=error)

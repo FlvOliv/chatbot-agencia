@@ -1,239 +1,139 @@
 # CLAUDE.md — Malu Bot · Lu Milhas & Viagens
 
-> Este arquivo é lido automaticamente pelo Claude Code.
-> Ele define o contexto completo do projeto, convenções e regras.
+> Lido automaticamente pelo Claude Code. Contexto permanente, convenções e regras do projeto.
+> Mantém factual. Não é diário de progresso.
 
 ---
 
-## O que é este projeto
+## 1. Visão geral
 
-**Malu** é uma assistente virtual de atendimento nível 1 da agência **Lu Milhas & Viagens**.
+**Malu** é a assistente virtual (nível 1) da agência **Lu Milhas & Viagens**. Atende clientes pelo **WhatsApp**, coleta os dados da viagem e gera um **briefing** estruturado para a **Luciana** (atendente humana) fechar a cotação. **Nunca menciona preços** (regra de negócio).
 
-Ela funciona via **WhatsApp**, recebe clientes, coleta informações de viagem e gera um briefing estruturado para a Lu (atendente humana) fechar a cotação.
-
-- Integração: **Meta WhatsApp Cloud API** (oficial — sem risco de ban)
-- IA principal: **Claude claude-sonnet-4-5** via API Anthropic
-- IA fallback (opcional): **Gemma 3 via Ollama** (local, para mensagens simples)
-- Backend: **FastAPI** (Python, async)
-- Sessões: **Redis** (histórico de conversa por número, TTL 24h)
-- Banco: **PostgreSQL** (leads, conversas, briefings)
-- Fila: **Celery + Redis** (lembretes de follow-up)
-- Deploy: **Railway.app** (ou Render)
+O projeto tem duas partes:
+- **Backend (bot):** FastAPI que recebe o webhook da Meta, conversa via IA e persiste leads/conversas.
+- **Painel CRM (`crm/`):** app Next.js para a Luciana ver dashboard, leads, conversas e **assumir o atendimento** (inbox / takeover).
 
 ---
 
-## Stack e versões
+## 2. Stack e dependências
 
-```
-Python        3.12+
-FastAPI       0.115+
-anthropic     0.30+
-redis         5.x (asyncio)
-SQLAlchemy    2.x (async)
-Alembic       1.x
-Celery        5.x
-httpx         0.27+
-pydantic      2.x
-uvicorn       0.30+
-python-dotenv 1.x
-```
+| Camada | Tecnologia |
+|---|---|
+| Backend | Python **3.12** + FastAPI 0.115 (async) |
+| IA principal | **Groq** `llama-3.3-70b-versatile` |
+| IA fallback | **Google Gemini** `gemini-2.5-flash` (fallback automático em `app/ai.py`) |
+| Sessão/histórico | **Redis** (asyncio) — em produção/dev usa **Upstash** (TLS `rediss://`) |
+| Banco | **PostgreSQL** (SQLAlchemy 2 async + Alembic) — usa **Supabase** |
+| Fila | **Celery 5** + Redis (lembretes de inatividade) |
+| WhatsApp | **Meta WhatsApp Cloud API** (oficial — sem risco de ban) |
+| Painel | **Next.js 16** (React, TypeScript) em `crm/` |
+| HTTP | **httpx** async · validação **pydantic 2** · server **uvicorn** |
+
+> **Importante:** **NÃO** usamos Anthropic/Claude nem Ollama no runtime (o `ai.py` é Groq + Gemini). Gemini free tem limite de **~20 req/dia** — por isso **Groq é o principal**.
 
 ---
 
-## Estrutura de diretórios (target)
+## 3. Estrutura de pastas
 
 ```
-malu-bot/
-├── app/
-│   ├── main.py              # FastAPI app + webhook endpoints
-│   ├── whatsapp.py          # Cliente Meta Cloud API (send/receive)
-│   ├── ai.py                # Router de modelos (Claude / Gemma)
-│   ├── session.py           # Redis — histórico de conversa
-│   ├── briefing.py          # Parser de briefing + notificação Lu
-│   ├── models.py            # SQLAlchemy ORM (Lead, Conversation)
-│   ├── database.py          # Engine async + SessionLocal
-│   ├── config.py            # Pydantic Settings (lê .env)
-│   └── prompts/
-│       └── malu_v4.md       # System prompt da Malu (NÃO ALTERAR)
-├── workers/
-│   └── tasks.py             # Tarefas Celery (follow-up, notificações)
-├── alembic/
-│   └── versions/            # Migrações geradas automaticamente
-├── tests/
-│   ├── test_webhook.py
-│   ├── test_ai.py
-│   ├── test_session.py
-│   └── test_briefing.py
-├── scripts/
-│   └── seed_test.py         # Simula mensagens WhatsApp para teste local
-├── .env.example             # Template de variáveis (sem secrets reais)
-├── .env                     # Secrets reais (NO .gitignore)
-├── .gitignore
-├── docker-compose.yml       # PostgreSQL + Redis local
-├── Dockerfile
-├── requirements.txt
-├── alembic.ini
-└── README.md
+app/
+  main.py          # FastAPI + /webhook + pipeline (handle_message)
+  ai.py            # Router de IA: Groq/Gemini + fallback automático (route_and_ask)
+  whatsapp.py      # Cliente Meta Cloud API (parse_incoming, send_message)
+  session.py       # Redis: histórico + estado da conversa (STATE_TRANSFERRED)
+  briefing.py      # Extrai briefing, salva lead, notifica Luciana
+  clientes.py      # get_or_create_cliente, nome preferido
+  reservas.py      # checagem de reserva ativa
+  reminders.py     # agenda/cancela lembretes (Celery)
+  commands.py      # comandos (/sair), intents (1/2), respostas fixas
+  models.py        # ORM: Lead, Conversation, Cliente, Reserva
+  database.py      # engine async + SessionLocal + get_session
+  config.py        # Pydantic Settings (lê .env) — fonte única de config
+  api/             # Rotas REST do painel (todas /api/*, exigem X-API-Key)
+    leads.py · conversations.py · metrics.py · reservas.py · auth.py · schemas.py
+  prompts/malu_v4.md   # System prompt da Malu (NÃO EDITAR sem instrução)
+workers/tasks.py   # Celery (lembretes + relatório diário)
+alembic/versions/  # Migrations (0001_initial, 0002_clientes, 0003_reservas)
+tests/             # pytest (test_api, test_commands, test_insights, test_reminders, ...)
+scripts/
+  demo_chat.py     # Chat interativo no terminal com a Malu (sem WhatsApp)
+  sim_cliente.py   # Simula um cliente pelo pipeline REAL (popula o banco)
+  check_setup.py · seed_test.py
+crm/               # Painel Next.js (app/, components/, lib/)
+  lib/api.ts       # cliente da API FastAPI (usa CRM_API_KEY server-side)
+  app/             # páginas: / (dashboard), /leads, /conversas, /configuracoes
 ```
 
 ---
 
-## Variáveis de ambiente (.env)
+## 4. Ambiente de desenvolvimento (realidade atual)
 
-```env
-# Meta WhatsApp Cloud API
-WA_TOKEN=your_permanent_access_token
-WA_PHONE_ID=your_phone_number_id
-WA_VERIFY_TOKEN=qualquer_string_aleatoria
-WA_APP_SECRET=seu_app_secret_meta
-
-# Anthropic
-ANTHROPIC_API_KEY=sk-ant-...
-
-# Banco e cache
-DATABASE_URL=postgresql+asyncpg://malu:malu@localhost:5432/malu
-REDIS_URL=redis://localhost:6379/0
-
-# Negócio
-LUCIANA_PHONE=5511999999999
-BUSINESS_HOURS_START=9
-BUSINESS_HOURS_END=18
-
-# IA
-AI_PRIMARY=claude          # "claude" | "openai" | "gemma"
-AI_FALLBACK=gemma          # "gemma" | "none"
-OLLAMA_URL=http://localhost:11434
-```
+- **SO:** Windows + **Git Bash** (MINGW64). Comandos em bash (`rm -rf`, `source`).
+- **venv Python 3.12** — criar com `py -3.12 -m venv venv`. **NÃO usar 3.14** (asyncpg/pydantic-core não compilam).
+- **Docker está DESCARTADO** nesta máquina (virtualização desligada na BIOS + 4GB RAM). Por isso Postgres/Redis vêm da **nuvem** (Supabase/Upstash), não do `docker-compose`.
+- **Sempre** rodar Python com `export PYTHONUTF8=1` (scripts usam emoji; sem isso dá `UnicodeEncodeError` no console do Windows).
+- **`.env`** (raiz) e **`crm/.env.local`** contêm segredos e **estão no `.gitignore`** — nunca commitar.
 
 ---
 
-## Schema do banco (PostgreSQL)
-
-```sql
--- leads
-CREATE TABLE leads (
-    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    phone         TEXT NOT NULL UNIQUE,
-    name          TEXT,
-    destination   TEXT,
-    travel_type   TEXT,
-    lead_temp     TEXT CHECK (lead_temp IN ('frio','morno','quente','urgente')),
-    briefing_md   TEXT,
-    raw_data      JSONB DEFAULT '{}',
-    notified_at   TIMESTAMPTZ,
-    created_at    TIMESTAMPTZ DEFAULT now(),
-    updated_at    TIMESTAMPTZ DEFAULT now()
-);
-
--- conversations (log de auditoria)
-CREATE TABLE conversations (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    phone       TEXT NOT NULL,
-    role        TEXT CHECK (role IN ('user','assistant')),
-    content     TEXT NOT NULL,
-    model_used  TEXT,
-    created_at  TIMESTAMPTZ DEFAULT now()
-);
-```
-
----
-
-## Regras de código (SEGUIR SEMPRE)
-
-1. **Sempre usar async/await** — FastAPI é async, SQLAlchemy async, Redis async.
-2. **Nunca bloquear o event loop** — sem `time.sleep()`, sem I/O síncrono.
-3. **Config via `app/config.py`** — nunca `os.getenv()` direto em módulos de negócio.
-4. **Tratamento de erro** — toda chamada à API Meta e à IA deve ter try/except com log.
-5. **Testes** — cada módulo novo deve ter pelo menos 1 teste em `tests/`.
-6. **Sem secrets no código** — tudo via `.env`.
-7. **Type hints** em todas as funções.
-8. **Docstrings** em funções públicas.
-
----
-
-## Fluxo principal de uma mensagem
-
-```
-1. Cliente manda mensagem no WhatsApp
-2. Meta envia POST /webhook para o backend
-3. Backend valida assinatura HMAC-SHA256
-4. Extrai phone + texto da payload
-5. Busca histórico no Redis (get_history)
-6. Adiciona mensagem do usuário ao histórico
-7. Chama ask_malu(history) → retorna resposta
-8. Adiciona resposta ao histórico → salva no Redis
-9. Envia resposta via Meta API
-10. Verifica se resposta contém "## Resumo da Solicitação"
-11. Se sim → salva lead no PostgreSQL + notifica Lu via WhatsApp
-```
-
----
-
-## System prompt
-
-O arquivo `app/prompts/malu_v4.md` contém o prompt completo da Malu.
-**NÃO editar esse arquivo sem instrução explícita.**
-Ele é injetado como `system` message em toda chamada à IA.
-
----
-
-## Convenção de notificação para Lu
-
-Quando a Malu gerar um briefing completo (bloco `## Resumo da Solicitação de Cotação`),
-o sistema deve:
-
-1. Extrair o bloco markdown
-2. Salvar na tabela `leads` (campo `briefing_md`)
-3. Enviar mensagem WhatsApp para `LUCIANA_PHONE` no formato:
-
-```
-📋 *Novo lead — Malu*
-
-📱 Cliente: +55 11 99999-9999
-🌡 Temperatura: Quente
-
-[conteúdo do briefing aqui]
-```
-
----
-
-## Como rodar localmente
+## 5. Comandos essenciais
 
 ```bash
-# 1. Sobe postgres + redis
-docker-compose up -d
+# --- backend (na raiz, venv ativo) ---
+source venv/Scripts/activate
+export PYTHONUTF8=1
+alembic upgrade head                       # migrations
+uvicorn app.main:app --port 8000           # API (/health, /webhook, /api/*)
+python -m pytest tests/ -q                 # testes (135 verdes)
+python scripts/sim_cliente.py              # popula o banco simulando um cliente
+ngrok http 8000                            # expõe o webhook (precisa authtoken)
 
-# 2. Cria banco e roda migrations
-alembic upgrade head
+# --- worker de lembretes ---
+celery -A workers.tasks worker --beat --loglevel=info
 
-# 3. Inicia FastAPI
-uvicorn app.main:app --reload --port 8000
-
-# 4. Em outro terminal, expõe o webhook
-ngrok http 8000
-
-# 5. Cola a URL ngrok no Meta Developer Console
-#    Webhook URL: https://XXXX.ngrok.io/webhook
-#    Verify token: mesmo valor de WA_VERIFY_TOKEN no .env
+# --- painel CRM (em crm/) ---
+npm install
+npm run dev      # http://localhost:3000
+npm run build    # validação de build (pré-deploy)
+npm run lint
 ```
+
+`crm/.env.local` precisa de `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` e `CRM_API_KEY` (a mesma do backend).
 
 ---
 
-## Testes
+## 6. Convenções de código
 
-```bash
-pytest tests/ -v
-```
-
-O arquivo `scripts/seed_test.py` simula uma conversa completa sem precisar
-de WhatsApp real — útil para testar o fluxo de IA e o briefing.
+1. **async/await sempre** — FastAPI, SQLAlchemy e Redis são async. Nunca bloquear o event loop (sem `time.sleep`, sem I/O síncrono).
+2. **Config só via `app/config.py`** (`settings`) — nunca `os.getenv()` em módulos de negócio.
+3. **HTTP com `httpx` async** — nunca `requests`.
+4. **`logging`, nunca `print()`** no código de runtime (scripts de demo podem imprimir).
+5. **Toda chamada à Meta e à IA** com `try/except` + log.
+6. **Type hints** em todas as funções; **docstrings** nas públicas.
+7. **Cada módulo novo** com ao menos 1 teste em `tests/`.
+8. **Webhook sempre responde 200** (exceto assinatura inválida → 401). Erro interno é logado, nunca propagado (senão a Meta reentrega e duplica).
+9. **Schemas Pydantic** controlam o que sai na API; `id` UUID → usar o tipo `StrId` (coage para string).
+10. Comentários e mensagens em **PT-BR** (padrão do repo).
 
 ---
 
-## O que NÃO fazer
+## 7. Regras e preferências (SEMPRE / NUNCA)
 
-- Não usar `requests` (síncrono) — usar `httpx` async
-- Não commitar `.env`
-- Não alterar `app/prompts/malu_v4.md` sem instrução
-- Não usar `print()` para debug — usar `logging`
-- Não retornar erro 500 para a Meta (ela vai retentar e duplicar mensagens) — sempre retornar 200 e logar o erro internamente
+- **NUNCA** commitar `.env`, `crm/.env.local` ou qualquer segredo.
+- **NUNCA** editar `app/prompts/malu_v4.md` sem instrução explícita.
+- **NUNCA** assumir Docker nesta máquina — usar nuvem (Supabase/Upstash).
+- **SEMPRE** `AI_PRIMARY=groq`, `AI_FALLBACK=gemini` (Gemini free é limitado).
+- **SEMPRE** explicar passos de forma simples e, para ações fora do terminal (Meta, Supabase, Vercel, etc.), dar instruções **clique a clique** — o dono do projeto (Flávio) não programa.
+- **Colaboração git:** Flávio não tem escrita direta no repo do Gustavo (`origin = gustavomarcelloprf/chatbot-agencia`). Enviar mudanças pelo **fork** (`FlvOliv/chatbot-agencia`) → **Pull Request**.
+
+---
+
+## 8. Estado/limitação conhecida (crítica)
+
+O bot está validado ponta a ponta **localmente**, mas o **envio físico no WhatsApp está bloqueado**: a conta usa o **número de teste da Meta** (`+1 555…`), que **não entrega no Brasil** (erro **130497** — restrição de país do sandbox). Para ir ao ar é preciso registrar um **número real e dedicado** no app `luma-bot` (App ID `1527584538749277`), o que muda `WA_PHONE_ID`/`WA_BUSINESS_ACCOUNT_ID`/`WA_TOKEN`. Sem isso, nada chega ao cliente.
+
+---
+
+## 9. Fluxo de uma mensagem (resumo)
+
+`POST /webhook` → valida assinatura HMAC → `handle_message`: detecta não-texto → comando `/sair` → estado `transferred` (humano assumiu → bot calado) → identifica cliente → intent (1 reserva / 2 nova) → **IA** (`route_and_ask`) → envia resposta → se houver bloco `## Resumo da Solicitação de Cotação`, salva **lead** e **notifica a Luciana**.

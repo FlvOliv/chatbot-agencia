@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     # Groq (stand-by — ativar trocando AI_PRIMARY=groq no .env)
     groq_api_key: str = Field(default="", description="API key Groq (console.groq.com)")
     groq_model: str = Field(default="llama-3.3-70b-versatile")
+    # Reserva REAL dentro do próprio Groq: modelo menor/rápido com limites
+    # separados. Entra quando o modelo principal falha/é limitado (429), ANTES
+    # de cair pro Gemini (que no free vive esgotado). "" desliga.
+    groq_fallback_model: str = Field(default="llama-3.1-8b-instant")
 
     # Banco e cache
     database_url: str = Field(
@@ -47,6 +51,10 @@ class Settings(BaseSettings):
     luciana_phone: str = Field(..., description="Telefone Lu (E.164 sem +)")
     business_hours_start: int = Field(default=9)
     business_hours_end: int = Field(default=18)
+    panel_base_url: str = Field(
+        default="http://localhost:3000",
+        description="URL pública do painel CRM — usada no link dos avisos pra Lu",
+    )
 
     # IA
     ai_primary: Literal["gemini", "groq", "claude", "openai", "gemma"] = Field(default="gemini")
@@ -58,6 +66,15 @@ class Settings(BaseSettings):
     app_env: Literal["development", "staging", "production"] = Field(default="development")
     log_level: str = Field(default="INFO")
     session_ttl_seconds: int = Field(default=86400)
+    # Debounce de rajada (Fase 1C): segundos que a Malu espera juntando
+    # mensagens picadas antes de chamar a IA. 0 = desliga (responde na hora).
+    debounce_seconds: float = Field(default=7.0)
+
+    # Push web (Fase 3): chaves VAPID pra notificar a Lu no navegador.
+    # Se vazias, o push fica desligado (não quebra nada). Geradas com py_vapid.
+    vapid_public_key: str = Field(default="")
+    vapid_private_key: str = Field(default="")
+    vapid_subject: str = Field(default="mailto:contato@lumilhas.com")
 
     # CRM API (consumida pelo frontend Next.js)
     crm_api_key: str = Field(

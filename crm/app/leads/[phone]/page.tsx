@@ -49,6 +49,11 @@ export default async function LeadDetailPage({
               {display}
             </h1>
             <TempBadge temp={lead.lead_temp} />
+            {lead.numero && (
+              <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                #{lead.numero}
+              </span>
+            )}
           </div>
           <p className="mt-1 flex items-center gap-1.5 text-xs text-zinc-500">
             <Phone className="size-3.5" />

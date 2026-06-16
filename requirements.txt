@@ -12,6 +12,7 @@ pydantic==2.9.2
 pydantic-settings==2.5.2
 python-dotenv==1.0.1
 python-multipart==0.0.9
+pywebpush==2.3.0
 
 # Test
 pytest==8.3.3

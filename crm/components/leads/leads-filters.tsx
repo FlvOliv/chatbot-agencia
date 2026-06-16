@@ -20,12 +20,18 @@ const TEMPS = [
   { value: "frio", label: "Frio" },
 ];
 
+const SORTS = [
+  { value: "recent", label: "Mais novos" },
+  { value: "oldest", label: "Mais antigos" },
+];
+
 export function LeadsFilters() {
   const router = useRouter();
   const params = useSearchParams();
   const [, startTransition] = useTransition();
   const [q, setQ] = useState(params.get("q") ?? "");
   const temp = params.get("temp") ?? "all";
+  const sort = params.get("sort") ?? "recent";
 
   useEffect(() => {
     const h = setTimeout(() => {
@@ -44,6 +50,18 @@ export function LeadsFilters() {
     const next = new URLSearchParams(params.toString());
     if (!value || value === "all") next.delete("temp");
     else next.set("temp", value);
+    next.delete("page_size");
+    startTransition(() =>
+      router.replace(`/leads${next.toString() ? `?${next}` : ""}`, {
+        scroll: false,
+      }),
+    );
+  }
+
+  function changeSort(value: string | null) {
+    const next = new URLSearchParams(params.toString());
+    if (!value || value === "recent") next.delete("sort");
+    else next.set("sort", value);
     next.delete("page_size");
     startTransition(() =>
       router.replace(`/leads${next.toString() ? `?${next}` : ""}`, {
@@ -76,6 +94,21 @@ export function LeadsFilters() {
           {TEMPS.map((t) => (
             <SelectItem key={t.value} value={t.value}>
               {t.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select value={sort} onValueChange={changeSort}>
+        <SelectTrigger
+          aria-label="Ordenar leads por data"
+          className="h-11 sm:w-44"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {SORTS.map((s) => (
+            <SelectItem key={s.value} value={s.value}>
+              {s.label}
             </SelectItem>
           ))}
         </SelectContent>

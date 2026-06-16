@@ -2,6 +2,17 @@ export type LeadTemp = "frio" | "morno" | "quente" | "urgente";
 
 export type HealthStatus = "ok" | "degraded" | "down";
 
+export interface AppConfig {
+  luciana_phone: string;
+  ai_primary: string;
+  ai_fallback: string;
+  business_hours_start: number;
+  business_hours_end: number;
+  app_env: string;
+  version: string;
+  vapid_public_key?: string;
+}
+
 export interface ClienteOut {
   phone: string;
   profile_name: string | null;
@@ -11,18 +22,21 @@ export interface ClienteOut {
 
 export interface LeadOut {
   id: string;
+  numero: number | null;
   phone: string;
   name: string | null;
   destination: string | null;
   travel_type: string | null;
   lead_temp: LeadTemp | null;
   briefing_md: string | null;
+  raw_data: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
 
 export interface LeadListItem {
   id: string;
+  numero: number | null;
   phone: string;
   name: string | null;
   destination: string | null;
@@ -65,6 +79,7 @@ export interface ConversationSummary {
   last_message_preview: string;
   message_count: number;
   lead_temp: LeadTemp | null;
+  bot_paused: boolean;
 }
 
 export interface ConversationState {

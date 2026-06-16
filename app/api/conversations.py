@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pydantic import BaseModel, Field
@@ -30,6 +30,7 @@ router = APIRouter(
 @router.get("", response_model=list[ConversationSummary])
 async def list_conversations(
     limit: int = Query(default=50, ge=1, le=200),
+    q: str | None = Query(default=None, description="Busca: nome ou telefone"),
     db: AsyncSession = Depends(get_session),
 ) -> list[ConversationSummary]:
     """Lista as conversas mais recentes (1 por phone), ordenadas pela última mensagem."""
@@ -44,14 +45,27 @@ async def list_conversations(
         .subquery()
     )
 
-    rows = await db.execute(
-        select(
-            last_msg_subq.c.phone,
-            last_msg_subq.c.last_at,
-            last_msg_subq.c.msg_count,
+    stmt = select(
+        last_msg_subq.c.phone,
+        last_msg_subq.c.last_at,
+        last_msg_subq.c.msg_count,
+    )
+
+    # Busca por nome (cliente) ou telefone
+    if q:
+        like = f"%{q.strip()}%"
+        stmt = stmt.outerjoin(
+            Cliente, Cliente.phone == last_msg_subq.c.phone
+        ).where(
+            or_(
+                last_msg_subq.c.phone.ilike(like),
+                Cliente.name.ilike(like),
+                Cliente.profile_name.ilike(like),
+            )
         )
-        .order_by(last_msg_subq.c.last_at.desc())
-        .limit(limit)
+
+    rows = await db.execute(
+        stmt.order_by(last_msg_subq.c.last_at.desc()).limit(limit)
     )
     summaries: list[ConversationSummary] = []
     for phone, last_at, msg_count in rows.all():
@@ -70,6 +84,8 @@ async def list_conversations(
             select(Lead.lead_temp).where(Lead.phone == phone).limit(1)
         )
         lead_temp = lead_row.scalar_one_or_none()
+        # Estado do bot: "aguardando você" quando a Lu assumiu (transferred)
+        state = await get_state(phone)
 
         summaries.append(
             ConversationSummary(
@@ -79,6 +95,7 @@ async def list_conversations(
                 last_message_preview=(content or "")[:120],
                 message_count=int(msg_count or 0),
                 lead_temp=lead_temp,
+                bot_paused=(state == STATE_TRANSFERRED),
             )
         )
     return summaries

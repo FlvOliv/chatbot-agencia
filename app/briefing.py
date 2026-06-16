@@ -30,6 +30,11 @@ _BRIEFING_HEADER_RE = re.compile(
     re.DOTALL | re.IGNORECASE,
 )
 
+# Sinal INTERNO de transferência pra Lu (cliente quer falar de uma cotação/reserva
+# que a Lu já fez). A Malu escreve "## TRANSFERIR" na última linha — o código
+# detecta, transfere a conversa e o marcador NUNCA vai pro cliente.
+_TRANSFER_RE = re.compile(r"##\s*TRANSFERIR\b", re.IGNORECASE)
+
 # Temperatura aparece como:  **Temperatura do lead:** Quente
 _TEMP_RE = re.compile(
     r"\*\*Temperatura do lead:\*\*\s*([^\n*]+)",
@@ -64,6 +69,127 @@ _NAME_PLACEHOLDERS = {
 }
 
 _VALID_TEMPS = {"frio", "morno", "quente", "urgente"}
+
+
+# ---------------------------------------------------------------------------
+# Briefing ESTRUTURADO (substitui o "garimpo" por regex)
+# ---------------------------------------------------------------------------
+# Fonte única da verdade dos campos do briefing, na ordem em que aparecem pra
+# Lu. A MESMA lista alimenta (a) o schema da extração em JSON (app/ai.py) e
+# (b) a renderização do texto pra Lu. Adicionar/remover campo = mexer só aqui.
+#   (chave_json, rótulo exibido)
+BRIEFING_FIELDS: list[tuple[str, str]] = [
+    ("nome_cliente", "Nome do cliente"),
+    ("whatsapp", "WhatsApp"),
+    ("tipo_atendimento", "Tipo de atendimento"),
+    ("origem", "Origem"),
+    ("aeroporto_preferencia", "Aeroporto de preferência"),
+    ("destino", "Destino"),
+    ("data_ida", "Data de ida"),
+    ("data_volta", "Data de volta"),
+    ("flexibilidade_datas", "Flexibilidade de datas"),
+    ("qtd_adultos", "Quantidade de adultos"),
+    ("qtd_criancas", "Quantidade de crianças"),
+    ("idades_criancas", "Idades das crianças"),
+    ("hospedagem_incluida", "Hospedagem incluída?"),
+    ("regiao_hospedagem", "Região desejada da hospedagem"),
+    ("tipo_hospedagem", "Tipo de hospedagem"),
+    ("qtd_quartos", "Quantidade de quartos"),
+    ("carro_alugado", "Carro alugado?"),
+    ("bagagem_despachada", "Bagagem despachada?"),
+    ("preferencia_voo", "Preferência de voo"),
+    ("forma_pagamento", "Forma de pagamento"),
+    ("orcamento", "Orçamento aproximado"),
+    ("motivo_viagem", "Motivo da viagem"),
+    ("prazo_decisao", "Prazo de decisão"),
+    ("veio_indicacao", "Veio de indicação?"),
+    ("ja_viajou", "Já viajou com a Lu Milhas?"),
+    ("pendencias", "Pendências para confirmar"),
+    ("observacoes", "Observações importantes"),
+]
+
+# Campo que a IA CLASSIFICA (não é dado dito pelo cliente)
+TEMPERATURA_KEY = "temperatura_lead"
+
+NAO_INFORMADO = "Não informado"
+
+
+def _clean_value(value: object) -> str | None:
+    """Normaliza um valor extraído: None / '' / placeholder → None."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in _NAME_PLACEHOLDERS:
+        return None
+    return text
+
+
+def normalize_temp(value: object) -> str:
+    """Garante uma temperatura válida (default 'morno')."""
+    raw = str(value or "").strip().lower()
+    for word in re.findall(r"\w+", raw):
+        if word in _VALID_TEMPS:
+            return word
+    return "morno"
+
+
+def render_briefing(data: dict, customer_phone: str | None = None) -> str:
+    """Monta o markdown do briefing pra Lu a partir dos dados ESTRUTURADOS.
+
+    Campo ausente/null vira "Não informado" — nunca um chute. Esta é a fonte
+    confiável que a Lu recebe (não o texto livre da IA).
+    """
+    lines = ["## Resumo da Solicitação de Cotação", ""]
+    for key, label in BRIEFING_FIELDS:
+        val = _clean_value(data.get(key))
+        # WhatsApp: usa o número real do webhook se a IA não capturou
+        if val is None and key == "whatsapp" and customer_phone:
+            val = customer_phone
+        lines.append(f"**{label}:** {val if val is not None else NAO_INFORMADO}")
+    temp = normalize_temp(data.get(TEMPERATURA_KEY))
+    lines.append(f"**Temperatura do lead:** {temp.capitalize()}")
+    return "\n".join(lines)
+
+
+def lead_columns_from_data(data: dict) -> dict:
+    """Extrai os campos que viram COLUNAS da tabela leads (filtros/gráficos)."""
+    return {
+        "name": _clean_value(data.get("nome_cliente")),
+        "destination": _clean_value(data.get("destino")),
+        "travel_type": _clean_value(data.get("tipo_atendimento")),
+        "lead_temp": normalize_temp(data.get(TEMPERATURA_KEY)),
+    }
+
+
+def split_reply_and_briefing(reply: str) -> tuple[str, str | None]:
+    """Separa o que vai pro CLIENTE do bloco de briefing (sinal de fim de coleta).
+
+    Retorna (texto_pro_cliente, bloco_briefing_ou_None). O bloco em si NÃO vai
+    pro cliente — serve só como gatilho de que a coleta terminou.
+    """
+    if not reply:
+        return reply, None
+    m = _BRIEFING_HEADER_RE.search(reply)
+    if not m:
+        return reply, None
+    before = reply[: m.start()].strip()
+    block = m.group(1).strip()
+    return before, block
+
+
+def split_reply_and_transfer(reply: str) -> tuple[str, bool]:
+    """Separa o texto pro cliente do sinal de transferência (`## TRANSFERIR`).
+
+    Retorna (texto_pro_cliente_sem_marcador, quer_transferir). O marcador em si
+    NUNCA vai pro cliente — serve só como gatilho de que a Malu quer passar a
+    conversa pra Lu (cliente falando de uma cotação/reserva já feita).
+    """
+    if not reply:
+        return reply, False
+    if not _TRANSFER_RE.search(reply):
+        return reply, False
+    cleaned = _TRANSFER_RE.sub("", reply).strip()
+    return cleaned, True
 
 
 def extract_briefing(text: str) -> str | None:
@@ -126,6 +252,12 @@ def parse_customer_whatsapp(briefing: str) -> str | None:
     return raw or None
 
 
+def _panel_link(customer_phone: str) -> str:
+    """Link direto pra conversa do cliente no painel (deep link do aviso)."""
+    base = settings.panel_base_url.rstrip("/")
+    return f"{base}/conversas/{customer_phone}"
+
+
 def _format_phone_display(phone: str) -> str:
     """Formata `5511987654321` → `+55 11 98765-4321` (best effort)."""
     digits = re.sub(r"\D", "", phone)
@@ -136,16 +268,24 @@ def _format_phone_display(phone: str) -> str:
     return f"+{digits}" if digits else phone
 
 
-async def notify_luciana(briefing: str, customer_phone: str) -> bool:
+async def notify_luciana(
+    briefing: str, customer_phone: str, numero: int | None = None
+) -> bool:
     """Envia mensagem formatada para Lu com o briefing do lead."""
     temp = parse_lead_temp(briefing).capitalize()
     display = _format_phone_display(customer_phone)
+    titulo = (
+        f"📋 *Novo lead #{numero} — Malu*"
+        if numero is not None
+        else "📋 *Novo lead — Malu*"
+    )
 
     body = (
-        f"📋 *Novo lead — Malu*\n\n"
+        f"{titulo}\n\n"
         f"📱 Cliente: {display}\n"
         f"🌡 Temperatura: {temp}\n\n"
-        f"{briefing}"
+        f"{briefing}\n\n"
+        f"👉 Responder no painel: {_panel_link(customer_phone)}"
     )
 
     ok = await send_message(settings.luciana_phone, body)
@@ -170,8 +310,8 @@ async def notify_luciana_returning_client(
         f"🔔 *Cliente com reserva quer atendimento*\n\n"
         f"📱 {display}\n"
         f"👤 {name_part}\n\n"
-        f"A Malu transferiu a conversa pra você. Quando puder, "
-        f"assume direto pelo WhatsApp."
+        f"A Malu transferiu a conversa pra você.\n\n"
+        f"👉 Responder no painel: {_panel_link(customer_phone)}"
     )
 
     ok = await send_message(settings.luciana_phone, body)
@@ -182,27 +322,76 @@ async def notify_luciana_returning_client(
     return ok
 
 
+async def notify_luciana_ai_down(
+    customer_phone: str,
+    customer_name: str | None,
+) -> bool:
+    """Alerta a Lu de que a Malu travou (IA fora do ar) e a conversa foi
+    transferida pra ela assumir manualmente no painel.
+
+    Diferente do `notify_luciana_returning_client`: aqui o cliente NÃO pediu
+    transferência — foi a IA que caiu (as duas, primária + reserva). A Malu
+    avisou o cliente uma vez e silenciou pra não repetir o erro.
+    """
+    display = _format_phone_display(customer_phone)
+    name_part = f"*{customer_name}*" if customer_name else "Um cliente"
+
+    body = (
+        f"⚠️ *A Malu travou — assume essa conversa?*\n\n"
+        f"📱 {display}\n"
+        f"👤 {name_part}\n\n"
+        f"A inteligência da Malu ficou indisponível por uns instantes e ela "
+        f"passou a conversa pra você pra não deixar o cliente sem resposta.\n\n"
+        f"👉 Responder no painel: {_panel_link(customer_phone)}"
+    )
+
+    ok = await send_message(settings.luciana_phone, body)
+    if not ok:
+        logger.error("falha ao notificar Lu sobre Malu travada (%s)", customer_phone)
+    return ok
+
+
 async def save_lead(
     phone: str,
-    briefing: str,
-    lead_temp: str,
     db: AsyncSession,
+    *,
+    briefing_md: str,
+    lead_temp: str,
+    name: str | None = None,
+    destination: str | None = None,
+    travel_type: str | None = None,
+    raw_data: dict | None = None,
 ) -> Lead:
-    """Salva (ou atualiza) o lead no Postgres via UPSERT por phone."""
+    """UPSERT do lead por phone.
+
+    Colunas estruturadas (`name`/`destination`/`travel_type`) e `raw_data` só
+    são gravadas quando vêm preenchidas — assim uma extração parcial nunca
+    apaga um dado que já existia de um briefing anterior.
+    """
+    insert_values: dict[str, object] = {
+        "phone": phone,
+        "briefing_md": briefing_md,
+        "lead_temp": lead_temp,
+    }
+    update_values: dict[str, object] = {
+        "briefing_md": briefing_md,
+        "lead_temp": lead_temp,
+    }
+    optional = {
+        "name": name,
+        "destination": destination,
+        "travel_type": travel_type,
+        "raw_data": raw_data,
+    }
+    for col, val in optional.items():
+        if val:  # ignora None / "" / {} → não sobrescreve
+            insert_values[col] = val
+            update_values[col] = val
+
     stmt = (
         pg_insert(Lead)
-        .values(
-            phone=phone,
-            briefing_md=briefing,
-            lead_temp=lead_temp,
-        )
-        .on_conflict_do_update(
-            index_elements=["phone"],
-            set_={
-                "briefing_md": briefing,
-                "lead_temp": lead_temp,
-            },
-        )
+        .values(**insert_values)
+        .on_conflict_do_update(index_elements=["phone"], set_=update_values)
         .returning(Lead.id)
     )
     result = await db.execute(stmt)

@@ -10,16 +10,19 @@ Estrutura:
     /api/reservas             — POST criar nova reserva (manual pela Lu)
     /api/dashboard/metrics    — métricas agregadas pro dashboard
     /api/dashboard/insights   — séries temporais e agregados (Painel de Insights)
+    /api/config               — configuração não-secreta exibida no painel
 """
 
 from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api import conversations, leads, metrics, reservas
+from app.api import config, conversations, leads, metrics, push, reservas
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(leads.router)
 api_router.include_router(conversations.router)
 api_router.include_router(reservas.router)
 api_router.include_router(metrics.router)
+api_router.include_router(config.router)
+api_router.include_router(push.router)

@@ -1,24 +1,23 @@
-import { Circle, ExternalLink, LogOut, Phone, Clock, Bot } from "lucide-react";
+import { Circle, ExternalLink, LogOut, Phone, Clock, Bot, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { NotificationsButton } from "@/components/push/notifications-button";
 import { formatPhone } from "@/lib/format";
-import { getHealthStatus } from "@/lib/api";
+import { getConfig, getHealthStatus } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
-function readEnv(key: string, fallback = ""): string {
-  return process.env[key] ?? fallback;
-}
-
 export default async function ConfiguracoesPage() {
-  const lucianaPhone = readEnv("NEXT_PUBLIC_LUCIANA_PHONE", "");
-  const aiPrimary = readEnv("NEXT_PUBLIC_AI_PRIMARY", "gemini");
-  const aiFallback = readEnv("NEXT_PUBLIC_AI_FALLBACK", "groq");
-  const bhStart = readEnv("NEXT_PUBLIC_BUSINESS_HOURS_START", "9");
-  const bhEnd = readEnv("NEXT_PUBLIC_BUSINESS_HOURS_END", "18");
+  // Fonte única: tudo vem do backend (/api/config), sem duplicar em NEXT_PUBLIC_*
+  const [config, health] = await Promise.all([getConfig(), getHealthStatus()]);
 
-  const health = await getHealthStatus();
+  const lucianaPhone = config?.luciana_phone ?? "";
+  const aiPrimary = config?.ai_primary ?? "—";
+  const aiFallback = config?.ai_fallback ?? "—";
+  const bhStart = config ? String(config.business_hours_start) : "—";
+  const bhEnd = config ? String(config.business_hours_end) : "—";
+  const version = config?.version ?? "0.1";
   const statusColor =
     health === "ok"
       ? "fill-emerald-500 text-emerald-500"
@@ -89,6 +88,21 @@ export default async function ConfiguracoesPage() {
 
       <Card className="border-zinc-200 dark:border-zinc-800 shadow-none">
         <CardContent className="p-4 sm:p-6 space-y-3">
+          <section>
+            <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              <Bell className="size-3.5" /> Notificações
+            </h2>
+            <p className="mt-1 mb-3 text-xs text-zinc-500">
+              Receba um aviso no navegador quando chegar um lead novo, mesmo com
+              o painel fechado.
+            </p>
+            <NotificationsButton vapidPublicKey={config?.vapid_public_key} />
+          </section>
+        </CardContent>
+      </Card>
+
+      <Card className="border-zinc-200 dark:border-zinc-800 shadow-none">
+        <CardContent className="p-4 sm:p-6 space-y-3">
           <a
             href="#"
             className="flex items-center justify-between rounded-md px-2 py-3 min-h-11 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-900"
@@ -107,7 +121,7 @@ export default async function ConfiguracoesPage() {
       </Card>
 
       <p className="text-center text-[11px] text-zinc-400">
-        Painel da Malu · v0.1
+        Painel da Malu · v{version}
       </p>
     </div>
   );

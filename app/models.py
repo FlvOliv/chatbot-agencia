@@ -9,6 +9,7 @@ import uuid
 from datetime import date, datetime
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Date,
     DateTime,
@@ -16,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -38,6 +40,15 @@ class Lead(Base):
         UUID(as_uuid=True),
         primary_key=True,
         server_default=func.gen_random_uuid(),
+    )
+    # Número de protocolo legível (#1001, #1002...) — referência compartilhada
+    # entre cliente e Lu. NÃO é usado pra identificar o cliente (isso é pelo
+    # phone); é só uma etiqueta amigável. Vem de uma sequência do Postgres.
+    numero: Mapped[int] = mapped_column(
+        BigInteger,
+        server_default=text("nextval('leads_numero_seq')"),
+        unique=True,
+        nullable=False,
     )
     phone: Mapped[str] = mapped_column(Text, nullable=False, unique=True, index=True)
     name: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -139,6 +150,32 @@ class Reserva(Base):
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Reserva phone={self.phone!r} destino={self.destino!r} status={self.status!r}>"
+
+
+class PushSubscription(Base):
+    """Inscrição de push web (Fase 3) — um navegador/dispositivo da Lu.
+
+    Guardada quando a Lu clica "Ativar notificações" no painel. O backend usa
+    `endpoint` + chaves pra enviar o aviso de lead novo via protocolo Web Push.
+    Inscrições expiradas (HTTP 404/410 ao enviar) são removidas na hora do envio.
+    """
+
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=func.gen_random_uuid(),
+    )
+    endpoint: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    p256dh: Mapped[str] = mapped_column(Text, nullable=False)
+    auth: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<PushSubscription endpoint={self.endpoint[:40]!r}...>"
 
 
 class Conversation(Base):

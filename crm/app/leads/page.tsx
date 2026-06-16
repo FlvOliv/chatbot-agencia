@@ -18,6 +18,7 @@ function asTemp(v: string | undefined): LeadTemp | undefined {
 type LeadsSearchParams = Promise<{
   temp?: string | string[];
   q?: string | string[];
+  sort?: string | string[];
   page_size?: string | string[];
 }>;
 
@@ -29,10 +30,11 @@ export default async function LeadsPage({
   const sp = await searchParams;
   const temp = asTemp(typeof sp.temp === "string" ? sp.temp : undefined);
   const q = typeof sp.q === "string" ? sp.q : undefined;
+  const sort = sp.sort === "oldest" ? "oldest" : "recent";
   const pageSizeRaw = typeof sp.page_size === "string" ? Number(sp.page_size) : 20;
   const pageSize = Number.isFinite(pageSizeRaw) ? Math.min(Math.max(pageSizeRaw, 1), 100) : 20;
 
-  const data = await listLeads({ temp, q, page: 1, page_size: pageSize });
+  const data = await listLeads({ temp, q, sort, page: 1, page_size: pageSize });
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
 
@@ -70,6 +72,7 @@ export default async function LeadsPage({
                     {dest}
                   </p>
                   <p className="mt-0.5 text-[11px] text-zinc-400">
+                    {lead.numero ? `#${lead.numero} · ` : ""}
                     {formatPhone(lead.phone)} · {relativeFromNow(lead.created_at)}
                   </p>
                 </div>
@@ -88,6 +91,7 @@ export default async function LeadsPage({
             <table className="w-full text-sm">
               <thead className="bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
                 <tr>
+                  <th className="px-4 py-2 text-left font-medium">Protocolo</th>
                   <th className="px-4 py-2 text-left font-medium">Nome</th>
                   <th className="px-4 py-2 text-left font-medium">Telefone</th>
                   <th className="px-4 py-2 text-left font-medium">Destino</th>
@@ -102,6 +106,9 @@ export default async function LeadsPage({
                     key={lead.id}
                     className="hover:bg-zinc-50 dark:hover:bg-zinc-900"
                   >
+                    <td className="px-4 py-3 text-zinc-500 dark:text-zinc-400 tabular-nums">
+                      {lead.numero ? `#${lead.numero}` : "—"}
+                    </td>
                     <td className="px-4 py-3">
                       <Link
                         href={`/leads/${encodeURIComponent(lead.phone)}`}

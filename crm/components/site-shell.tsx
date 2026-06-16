@@ -55,7 +55,12 @@ export function SiteShell({
         </aside>
 
         <main className="flex-1 min-w-0 pb-20 lg:pb-8">
-          <div className="mx-auto w-full max-w-5xl px-4 py-4 sm:px-6 sm:py-6">
+          <div
+            className={cn(
+              "mx-auto w-full px-4 py-4 sm:px-6 sm:py-6",
+              pathname.startsWith("/conversas") ? "max-w-7xl" : "max-w-5xl",
+            )}
+          >
             {children}
           </div>
         </main>

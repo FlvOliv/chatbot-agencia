@@ -26,6 +26,14 @@ async function postApi<T>(path: string, body?: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Inscrição de push web (Fase 3) — recebe o JSON do navegador da Lu e
+ *  repassa pro backend com a X-API-Key (que fica só no servidor). */
+export async function subscribeToPush(
+  subscription: unknown,
+): Promise<{ status: string }> {
+  return postApi<{ status: string }>("/push/subscribe", subscription);
+}
+
 export async function takeoverConversation(
   phone: string,
 ): Promise<ConversationState> {

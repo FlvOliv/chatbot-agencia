@@ -28,11 +28,12 @@ router = APIRouter(
 async def list_leads(
     temp: str | None = Query(default=None, description="Filtro: frio|morno|quente|urgente"),
     q: str | None = Query(default=None, description="Busca: nome ou telefone"),
+    sort: str = Query(default="recent", description="Ordenação: recent (mais novo) | oldest (mais antigo)"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_session),
 ) -> LeadListResponse:
-    """Lista paginada de leads, com filtro opcional de temperatura e busca."""
+    """Lista paginada de leads, com filtro de temperatura, busca e ordenação."""
     base = select(Lead)
 
     if temp and temp.lower() != "all":
@@ -46,10 +47,13 @@ async def list_leads(
     total_stmt = select(func.count()).select_from(base.subquery())
     total = (await db.execute(total_stmt)).scalar_one()
 
+    # Ordenação por data (default: mais novo primeiro)
+    order = Lead.created_at.asc() if sort == "oldest" else Lead.created_at.desc()
+
     # Paginação
     offset = (page - 1) * page_size
     rows = await db.execute(
-        base.order_by(Lead.created_at.desc()).limit(page_size).offset(offset)
+        base.order_by(order).limit(page_size).offset(offset)
     )
     items = [LeadListItem.model_validate(lead) for lead in rows.scalars().all()]
 

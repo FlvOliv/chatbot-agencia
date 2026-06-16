@@ -14,7 +14,7 @@ import hashlib
 import hmac
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query, Request
@@ -22,15 +22,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from app import __version__
-from app.ai import route_and_ask
+from app.ai import extract_lead_data, route_and_ask
 from app.api import api_router
 from app.briefing import (
-    extract_briefing,
     extract_customer_name,
+    lead_columns_from_data,
     notify_luciana,
+    notify_luciana_ai_down,
     notify_luciana_returning_client,
     parse_lead_temp,
+    render_briefing,
     save_lead,
+    split_reply_and_briefing,
+    split_reply_and_transfer,
 )
 from app.clientes import get_or_create_cliente, update_preferred_name
 from app.commands import (
@@ -45,7 +49,9 @@ from app.commands import (
 )
 from app.config import settings
 from app.database import SessionLocal, dispose_engine
+from app.debounce import collect_burst
 from app.models import Conversation
+from app.push import send_push_to_all
 from app.reminders import cancel_reminders, schedule_reminders
 from app.reservas import has_reserva_ativa
 from app.session import (
@@ -72,6 +78,30 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
 logger = logging.getLogger("malu")
+
+# Fechamento pro cliente quando a coleta termina (o briefing detalhado vai só
+# pra Lu). Inclui o convite pro Instagram e pro grupo VIP de promoções — muitos
+# clientes fecham vendo as promos do grupo. (Para multi-tenant, virar config
+# por agência.)
+COLETA_CONCLUIDA_REPLY = (
+    "Recebi seus dados e já vou começar a buscar a melhor opção para a sua viagem, "
+    "com todo carinho 💛\n\n"
+    "Enquanto a Lu prepara sua cotação, já segue a gente no Instagram? Por lá saem "
+    "dicas de viagem e oportunidades ✈️🌎\n"
+    "👉 https://instagram.com/lumilhaseviagens\n\n"
+    "📣 Entre também no nosso grupo VIP de promoções no WhatsApp (poucos avisos, "
+    "sempre direto ao ponto 😄):\n"
+    "🔗 https://chat.whatsapp.com/KkWYCAtn3z46bg8W0rK4oc\n\n"
+    "Em breve volto com sua cotação! Qualquer coisa, é só me chamar por aqui."
+)
+
+# Mensagem ÚNICA quando a IA cai (primária + reserva). A Malu avisa o cliente
+# uma vez, sinaliza que a Lu assume e silencia (não repete o erro a cada turno).
+IA_FALHA_REPLY = (
+    "Opa, tive um probleminha técnico aqui agora 😅\n\n"
+    "Já avisei a Lu e ela vai continuar seu atendimento pessoalmente por aqui, "
+    "tá? Já já ela te responde. 💛"
+)
 
 
 @asynccontextmanager
@@ -339,32 +369,64 @@ async def handle_message(data: dict[str, Any]) -> None:
             return
 
     # 6) Fluxo normal — IA + briefing
+    # Debounce (Fase 1C): se o cliente está mandando mensagens picadas em
+    # rajada, espera juntá-las e responde uma vez só — evita estourar o limite
+    # do Groq e a Malu ficar repetitiva. Quem não é o último da rajada desiste.
+    burst = await collect_burst(phone, user_text)
+    if burst is None:
+        return
+    user_text = "\n".join(burst)
+    history = await get_history(phone)  # relê após a espera (estado mais fresco)
+
     history.append({"role": "user", "content": user_text})
     customer_context = {"name": customer_name, "is_first_turn": is_first_turn}
     reply, model_used = await route_and_ask(history, customer_context=customer_context)
-    history.append({"role": "assistant", "content": reply})
 
+    # As DUAS IAs falharam (primária + reserva). Em vez de repetir o erro a cada
+    # mensagem (parecendo quebrada), a Malu avisa UMA vez, silencia e chama a Lu.
+    if model_used == "error":
+        await _handle_ai_failure(phone, user_text, customer_name)
+        return
+
+    # O bloco "## Resumo" é sinal INTERNO de fim de coleta — não vai pro cliente.
+    customer_reply, briefing_block = split_reply_and_briefing(reply)
+    # "## TRANSFERIR" é sinal INTERNO: cliente quer falar de uma cotação/reserva
+    # que a Lu JÁ fez → passa a conversa pra Lu (sem coleta, sem pedir dados).
+    customer_reply, wants_transfer = split_reply_and_transfer(customer_reply)
+
+    if wants_transfer:
+        await _transfer_to_lu(phone, user_text, customer_reply, customer_name)
+        return
+
+    # Coleta concluída → fecha o lead ANTES de responder, pra já incluir o
+    # número de protocolo (#1001...) no fechamento que vai pro cliente.
+    if briefing_block:
+        numero = await _finalize_lead(phone, history, briefing_block)
+        # Push web pra Lu (Fase 3) — fire-and-forget, não atrasa a resposta nem
+        # quebra o fluxo se o push estiver desligado/falhar.
+        titulo = f"Novo lead #{numero}" if numero is not None else "Novo lead"
+        asyncio.create_task(
+            send_push_to_all(
+                titulo,
+                f"{customer_name or 'Cliente'} — toque pra abrir a conversa",
+                url=f"/conversas/{phone}",
+            )
+        )
+        if not customer_reply:
+            customer_reply = COLETA_CONCLUIDA_REPLY
+        if numero is not None:
+            customer_reply = (
+                customer_reply.rstrip()
+                + f"\n\n🔖 *Protocolo da sua solicitação:* #{numero}"
+            )
+
+    history.append({"role": "assistant", "content": customer_reply})
     await save_history(phone, history)
 
-    send_task = asyncio.create_task(send_message(phone, reply))
-    audit_task = asyncio.create_task(_persist_conversation(phone, user_text, reply, model_used))
-
-    briefing = extract_briefing(reply)
-    if briefing:
-        temp = parse_lead_temp(briefing)
-        try:
-            async with SessionLocal() as db:
-                await save_lead(phone, briefing, temp, db)
-                briefing_name = extract_customer_name(briefing)
-                if briefing_name:
-                    await update_preferred_name(phone, briefing_name, db)
-                await db.commit()
-        except Exception:
-            logger.exception("save_lead failed for %s", phone)
-        try:
-            await notify_luciana(briefing, phone)
-        except Exception:
-            logger.exception("notify_luciana failed for %s", phone)
+    send_task = asyncio.create_task(send_message(phone, customer_reply))
+    audit_task = asyncio.create_task(
+        _persist_conversation(phone, user_text, customer_reply, model_used)
+    )
 
     await asyncio.gather(send_task, audit_task, return_exceptions=True)
 
@@ -373,23 +435,153 @@ async def handle_message(data: dict[str, Any]) -> None:
     await schedule_reminders(phone)
 
 
+async def _transfer_to_lu(
+    phone: str,
+    user_text: str,
+    customer_reply: str,
+    customer_name: str | None,
+) -> None:
+    """Transfere a conversa pra Lu (cliente quer falar de algo que ela já fez).
+
+    Marca STATE_TRANSFERRED (Malu cala), avisa a Lu e para os lembretes.
+    Identifica o cliente pelo telefone — nunca pede código de cotação.
+    """
+    reply_text = customer_reply or transferred_reply(customer_name)
+    await set_state(phone, STATE_TRANSFERRED)
+    await cancel_reminders(phone)
+    send_task = asyncio.create_task(send_message(phone, reply_text))
+    audit_task = asyncio.create_task(
+        _persist_conversation(phone, user_text, reply_text, "flow:transfer-marker")
+    )
+    try:
+        await notify_luciana_returning_client(phone, customer_name)
+    except Exception:
+        logger.exception("notify_luciana_returning_client failed for %s", phone)
+    await asyncio.gather(send_task, audit_task, return_exceptions=True)
+
+
+async def _handle_ai_failure(
+    phone: str,
+    user_text: str,
+    customer_name: str | None,
+) -> None:
+    """As duas IAs caíram — anti-repetição + chama a Lu.
+
+    Manda UMA mensagem pro cliente, marca STATE_TRANSFERRED (Malu silencia nas
+    próximas — nada de repetir o erro), para os lembretes e avisa a Lu pra
+    assumir no painel. Quando a Lu "devolver", a Malu volta ao normal.
+    """
+    logger.warning("IA indisponível (primária+reserva) para %s — chamando a Lu", phone)
+    await set_state(phone, STATE_TRANSFERRED)
+    await cancel_reminders(phone)
+    send_task = asyncio.create_task(send_message(phone, IA_FALHA_REPLY))
+    audit_task = asyncio.create_task(
+        _persist_conversation(phone, user_text, IA_FALHA_REPLY, "flow:ai-failure")
+    )
+    try:
+        await notify_luciana_ai_down(phone, customer_name)
+    except Exception:
+        logger.exception("notify_luciana_ai_down failed for %s", phone)
+    await asyncio.gather(send_task, audit_task, return_exceptions=True)
+
+
+async def _finalize_lead(
+    phone: str,
+    history: list[dict[str, Any]],
+    briefing_block: str,
+) -> int | None:
+    """Fecha a coleta: extrai o lead em JSON, salva e notifica a Lu.
+
+    Caminho principal = extração ESTRUTURADA (confiável, sem inventar campos).
+    Se a IA estiver fora do ar, cai pro parser regex sobre o bloco que a Malu
+    escreveu — rede de segurança pra nunca perder um lead.
+
+    Retorna o número de protocolo do lead (#1001...) pra entrar no fechamento,
+    ou None se o save falhar.
+    """
+    data = await extract_lead_data(history)
+
+    if data:
+        briefing_md = render_briefing(data, phone)
+        cols = lead_columns_from_data(data)
+        numero: int | None = None
+        try:
+            async with SessionLocal() as db:
+                lead = await save_lead(
+                    phone,
+                    db,
+                    briefing_md=briefing_md,
+                    lead_temp=cols["lead_temp"],
+                    name=cols["name"],
+                    destination=cols["destination"],
+                    travel_type=cols["travel_type"],
+                    raw_data=data,
+                )
+                numero = lead.numero
+                if cols["name"]:
+                    await update_preferred_name(phone, cols["name"], db)
+                await db.commit()
+        except Exception:
+            logger.exception("save_lead (estruturado) failed for %s", phone)
+        try:
+            await notify_luciana(briefing_md, phone, numero=numero)
+        except Exception:
+            logger.exception("notify_luciana failed for %s", phone)
+        return numero
+
+    # Fallback: extração falhou (IA fora) → usa o bloco da Malu via regex
+    logger.warning("extração estruturada falhou p/ %s — usando fallback regex", phone)
+    temp = parse_lead_temp(briefing_block)
+    name = extract_customer_name(briefing_block)
+    numero = None
+    try:
+        async with SessionLocal() as db:
+            lead = await save_lead(
+                phone,
+                db,
+                briefing_md=briefing_block,
+                lead_temp=temp,
+                name=name,
+            )
+            numero = lead.numero
+            if name:
+                await update_preferred_name(phone, name, db)
+            await db.commit()
+    except Exception:
+        logger.exception("save_lead (fallback) failed for %s", phone)
+    try:
+        await notify_luciana(briefing_block, phone, numero=numero)
+    except Exception:
+        logger.exception("notify_luciana (fallback) failed for %s", phone)
+    return numero
+
+
 async def _persist_conversation(
     phone: str,
     user_text: str,
     reply: str,
     model_used: str,
 ) -> None:
-    """Grava as duas mensagens (user + assistant) na tabela conversations."""
+    """Grava as duas mensagens (user + assistant) na tabela conversations.
+
+    Timestamps DISTINTOS (Malu 10ms depois do cliente) garantem a ordem no
+    painel — senão as duas empatam no mesmo instante e a thread embaralha
+    (resposta da Malu aparecendo antes da pergunta do cliente).
+    """
     try:
         async with SessionLocal() as db:
+            now = datetime.now(timezone.utc)
             db.add_all(
                 [
-                    Conversation(phone=phone, role="user", content=user_text),
+                    Conversation(
+                        phone=phone, role="user", content=user_text, created_at=now
+                    ),
                     Conversation(
                         phone=phone,
                         role="assistant",
                         content=reply,
                         model_used=model_used,
+                        created_at=now + timedelta(milliseconds=10),
                     ),
                 ]
             )

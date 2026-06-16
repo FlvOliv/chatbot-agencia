@@ -16,6 +16,7 @@ Customer context:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from functools import lru_cache
 from pathlib import Path
@@ -111,13 +112,19 @@ def _build_gemini_history(history: list[dict]) -> list[dict]:
     return out
 
 
-def _ask_malu_gemini_sync(history: list[dict], system_prompt: str) -> str:
+def _ask_malu_gemini_sync(
+    history: list[dict], system_prompt: str, json_mode: bool = False
+) -> str:
     """Chamada síncrona ao Gemini — wrappeada em to_thread no async caller."""
     _configure_gemini()
 
+    generation_config = (
+        {"response_mime_type": "application/json"} if json_mode else None
+    )
     model = genai.GenerativeModel(
         model_name=settings.gemini_model,
         system_instruction=system_prompt,
+        generation_config=generation_config,
     )
 
     gemini_history = _build_gemini_history(history)
@@ -128,9 +135,13 @@ def _ask_malu_gemini_sync(history: list[dict], system_prompt: str) -> str:
     return (getattr(response, "text", "") or "").strip()
 
 
-async def _ask_malu_gemini(history: list[dict], system_prompt: str) -> str:
+async def _ask_malu_gemini(
+    history: list[dict], system_prompt: str, json_mode: bool = False
+) -> str:
     """Adapter async do Gemini — usa to_thread (SDK é majoritariamente sync)."""
-    return await asyncio.to_thread(_ask_malu_gemini_sync, history, system_prompt)
+    return await asyncio.to_thread(
+        _ask_malu_gemini_sync, history, system_prompt, json_mode
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -159,17 +170,27 @@ def _build_openai_messages(
     return messages
 
 
-async def _ask_malu_groq(history: list[dict], system_prompt: str) -> str:
-    """Chama o Groq (cliente async nativo)."""
+async def _ask_malu_groq(
+    history: list[dict],
+    system_prompt: str,
+    json_mode: bool = False,
+    model: str | None = None,
+) -> str:
+    """Chama o Groq (cliente async nativo). `model` permite usar o modelo de
+    reserva do Groq sem mexer no principal."""
     client = _groq_client()
     messages = _build_openai_messages(history, system_prompt)
 
-    response = await client.chat.completions.create(
-        model=settings.groq_model,
-        messages=messages,  # type: ignore[arg-type]
-        max_tokens=_MAX_TOKENS,
-        temperature=0.7,
-    )
+    kwargs: dict[str, Any] = {
+        "model": model or settings.groq_model,
+        "messages": messages,
+        "max_tokens": _MAX_TOKENS,
+        "temperature": 0.0 if json_mode else 0.7,
+    }
+    if json_mode:
+        kwargs["response_format"] = {"type": "json_object"}
+
+    response = await client.chat.completions.create(**kwargs)  # type: ignore[arg-type]
 
     choices = getattr(response, "choices", None) or []
     if not choices:
@@ -204,6 +225,42 @@ def _provider_available(provider: str) -> bool:
     return False
 
 
+def _groq_models() -> list[str]:
+    """Modelo principal do Groq + reserva (modelo menor/rápido), sem repetir."""
+    models = [settings.groq_model]
+    fb = settings.groq_fallback_model
+    if fb and fb != settings.groq_model:
+        models.append(fb)
+    return models
+
+
+def _build_attempts() -> list[tuple[str, str]]:
+    """Ordem de tentativas (provider, modelo) que `route_and_ask` percorre.
+
+    Inclui um 2º modelo do Groq como reserva REAL — o Gemini grátis vive
+    esgotado (429) e não protege sozinho. Ex. típico (groq+gemini):
+        groq/llama-3.3-70b → groq/llama-3.1-8b → gemini.
+    """
+    attempts: list[tuple[str, str]] = []
+
+    def add_provider(provider: str) -> None:
+        if provider == "groq":
+            for m in _groq_models():
+                if ("groq", m) not in attempts:
+                    attempts.append(("groq", m))
+        else:
+            pair = (provider, _model_name(provider))
+            if pair not in attempts:
+                attempts.append(pair)
+
+    primary = settings.ai_primary
+    add_provider(primary)
+    fallback = _resolve_fallback(primary)
+    if fallback:
+        add_provider(fallback)
+    return attempts
+
+
 def _resolve_fallback(primary: str) -> str | None:
     """Decide qual provider de reserva usar quando o primário falha.
 
@@ -228,12 +285,15 @@ async def _ask_provider(
     provider: str,
     history: list[dict],
     system_prompt: str,
+    json_mode: bool = False,
+    model: str | None = None,
 ) -> str:
-    """Chama um provider específico pelo nome."""
+    """Chama um provider específico pelo nome. `model` (opcional) sobrescreve
+    o modelo padrão do provider — usado pela reserva de modelo do Groq."""
     if provider == "gemini":
-        return await _ask_malu_gemini(history, system_prompt)
+        return await _ask_malu_gemini(history, system_prompt, json_mode)
     if provider == "groq":
-        return await _ask_malu_groq(history, system_prompt)
+        return await _ask_malu_groq(history, system_prompt, json_mode, model=model)
     raise ValueError(f"provider não suportado: {provider}")
 
 
@@ -271,8 +331,9 @@ async def route_and_ask(
 ) -> tuple[str, str]:
     """Router principal — tenta o provider ativo e, em falha, o de reserva.
 
-    A ordem é: AI_PRIMARY primeiro; se ele falhar ou vier vazio (ex.: limite
-    de quota 429 do Gemini), tenta automaticamente o provider de AI_FALLBACK.
+    A ordem (vide `_build_attempts`): modelo principal → 2º modelo do Groq
+    (reserva real) → provider de AI_FALLBACK. Tenta cada um; no primeiro que
+    responder, retorna. Só devolve "error" se TODOS falharem.
 
     Returns:
         (resposta, modelo_usado)
@@ -282,29 +343,118 @@ async def route_and_ask(
         raise ValueError("history vazio")
 
     system_prompt = _build_system_prompt(customer_context)
+    attempts = _build_attempts()
+
+    for i, (provider, model) in enumerate(attempts):
+        try:
+            text = await _ask_provider(provider, history, system_prompt, model=model)
+            if text:
+                if i > 0:
+                    logger.warning(
+                        "fallback acionado: %s/%s assumiu após falha da 1ª opção",
+                        provider,
+                        model,
+                    )
+                return text, model
+            logger.warning("%s/%s retornou resposta vazia", provider, model)
+        except Exception:
+            logger.exception("%s/%s call failed", provider, model)
+            # segue para a próxima tentativa (reserva), se houver
+
+    return (
+        "Tive um probleminha técnico aqui agora. Pode me mandar de novo daqui a pouco?",
+        "error",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Extração ESTRUTURADA do briefing (JSON) — substitui o regex frágil
+# ---------------------------------------------------------------------------
+def _render_transcript(history: list[dict]) -> str:
+    """Achata o histórico num texto 'Cliente: ... / Malu: ...' pra extração."""
+    lines: list[str] = []
+    for m in history:
+        role = m.get("role")
+        content = (m.get("content") or "").strip()
+        if not content or role not in ("user", "assistant"):
+            continue
+        who = "Cliente" if role == "user" else "Malu"
+        lines.append(f"{who}: {content}")
+    return "\n".join(lines)
+
+
+def _build_extraction_prompt() -> str:
+    """Instrução focada de extração — lista os campos a partir do briefing."""
+    from app.briefing import BRIEFING_FIELDS, TEMPERATURA_KEY
+
+    campos = "\n".join(f'  - "{k}": {label}' for k, label in BRIEFING_FIELDS)
+    return (
+        "Você é um EXTRATOR de dados. A partir da conversa entre um cliente e a "
+        "assistente Malu, devolva UM objeto JSON com exatamente as chaves abaixo.\n\n"
+        "REGRAS INVIOLÁVEIS:\n"
+        "1. Use SOMENTE o que o CLIENTE disse explicitamente. NUNCA invente, "
+        "suponha ou deduza.\n"
+        "2. Todo campo que o cliente não informou claramente deve ser null.\n"
+        "3. Ignore qualquer resumo que a própria Malu tenha escrito — baseie-se "
+        "apenas nas falas do cliente.\n"
+        f'4. A chave "{TEMPERATURA_KEY}" é a ÚNICA que você classifica: '
+        '"frio", "morno", "quente" ou "urgente", conforme o interesse/urgência '
+        'demonstrado (default "morno").\n\n'
+        "Chaves do JSON:\n"
+        f"{campos}\n"
+        f'  - "{TEMPERATURA_KEY}": frio | morno | quente | urgente\n\n'
+        "Responda APENAS com o objeto JSON, sem texto fora dele."
+    )
+
+
+def _parse_json_object(raw: str) -> dict | None:
+    """Parseia o JSON da extração, tolerando cercas ```json e texto ao redor."""
+    if not raw:
+        return None
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text[:4].lower() == "json":
+            text = text[4:]
+    text = text.strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        text = text[start : end + 1]
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def extract_lead_data(history: list[dict]) -> dict | None:
+    """Extrai o briefing em JSON estruturado a partir da conversa.
+
+    Tenta o provider primário e, em falha, o de reserva (mesma lógica do chat).
+    Retorna None se nenhum provider devolver JSON válido — o chamador decide
+    o fallback (ex.: voltar pro parser regex).
+    """
+    if not history:
+        return None
+
+    instruction = _build_extraction_prompt()
+    transcript = _render_transcript(history)
+    synth = [{"role": "user", "content": f"Conversa:\n{transcript}\n\nExtraia o JSON."}]
+
     primary = settings.ai_primary
     providers = [primary]
     fallback = _resolve_fallback(primary)
     if fallback:
         providers.append(fallback)
 
-    for i, provider in enumerate(providers):
+    for provider in providers:
         try:
-            text = await _ask_provider(provider, history, system_prompt)
-            if text:
-                if i > 0:
-                    logger.warning(
-                        "fallback acionado: %s assumiu após falha do primário (%s)",
-                        provider,
-                        primary,
-                    )
-                return text, _model_name(provider)
-            logger.warning("%s retornou resposta vazia", provider)
+            raw = await _ask_provider(provider, synth, instruction, json_mode=True)
+            data = _parse_json_object(raw)
+            if data is not None:
+                return data
+            logger.warning("extração via %s devolveu JSON inválido", provider)
         except Exception:
-            logger.exception("%s call failed", provider)
-            # segue para o próximo provider (fallback), se houver
+            logger.exception("extract_lead_data via %s falhou", provider)
 
-    return (
-        "Tive um probleminha técnico aqui agora. Pode me mandar de novo daqui a pouco?",
-        "error",
-    )
+    return None

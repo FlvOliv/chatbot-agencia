@@ -17,6 +17,23 @@ StrId = Annotated[str, BeforeValidator(lambda v: str(v))]
 
 
 # ---------------------------------------------------------------------------
+# Config (não-secreta) — fonte única exibida no painel
+# ---------------------------------------------------------------------------
+class AppConfigOut(BaseModel):
+    """Configuração operacional NÃO-secreta. Nunca expõe tokens/chaves/URLs."""
+
+    luciana_phone: str
+    ai_primary: str
+    ai_fallback: str
+    business_hours_start: int
+    business_hours_end: int
+    app_env: str
+    version: str
+    # Chave VAPID pública (não é segredo) — o painel usa pra inscrever o push.
+    vapid_public_key: str = ""
+
+
+# ---------------------------------------------------------------------------
 # Cliente
 # ---------------------------------------------------------------------------
 class ClienteOut(BaseModel):
@@ -33,12 +50,14 @@ class ClienteOut(BaseModel):
 class LeadOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: StrId
+    numero: int | None = None
     phone: str
     name: str | None = None
     destination: str | None = None
     travel_type: str | None = None
     lead_temp: str | None = None
     briefing_md: str | None = None
+    raw_data: dict = {}
     created_at: datetime
     updated_at: datetime
 
@@ -47,6 +66,7 @@ class LeadListItem(BaseModel):
     """Versão enxuta — usada na tabela de leads, sem o briefing inteiro."""
     model_config = ConfigDict(from_attributes=True)
     id: StrId
+    numero: int | None = None
     phone: str
     name: str | None = None
     destination: str | None = None
@@ -91,6 +111,7 @@ class ConversationSummary(BaseModel):
     last_message_preview: str
     message_count: int
     lead_temp: str | None = None
+    bot_paused: bool = False
 
 
 class ConversationDetail(BaseModel):

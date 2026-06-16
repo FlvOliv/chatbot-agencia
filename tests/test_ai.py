@@ -4,7 +4,8 @@ O conftest.py seta AI_PRIMARY=gemini para os testes. Mockamos
 `_ask_provider` (o dispatcher interno) — cobre tanto caminho do primário
 quanto do fallback automático adicionado no PR #1.
 
-A assinatura do `_ask_provider` é `(provider, history, system_prompt)`,
+A assinatura do `_ask_provider` é `(provider, history, system_prompt, model=None)`
+(o `model` opcional foi adicionado na reserva de modelo do Groq — Fase 1B),
 e o `route_and_ask` aceita `customer_context` opcional pra injetar contexto
 do cliente no system prompt (Sprint 1.3).
 """
@@ -25,7 +26,7 @@ from app import ai
 async def test_route_and_ask_uses_primary_when_ok() -> None:
     """Caminho feliz: primário responde, model = nome do primário."""
 
-    async def fake_ask(provider, history, system_prompt):  # noqa: ANN001, ARG001
+    async def fake_ask(provider, history, system_prompt, model=None):  # noqa: ANN001, ARG001
         return "oi, sou a malu"
 
     with patch.object(ai, "_ask_provider", side_effect=fake_ask):
@@ -42,7 +43,7 @@ async def test_route_and_ask_returns_error_when_provider_fails(monkeypatch) -> N
     """Quando todos os providers falham, retorna mensagem padrão e model='error'."""
     monkeypatch.setattr(ai.settings, "ai_fallback", "none")
 
-    async def fake_ask(provider, history, system_prompt):  # noqa: ANN001, ARG001
+    async def fake_ask(provider, history, system_prompt, model=None):  # noqa: ANN001, ARG001
         raise RuntimeError("provider down")
 
     with patch.object(ai, "_ask_provider", side_effect=fake_ask):
@@ -59,7 +60,7 @@ async def test_route_and_ask_handles_empty_response(monkeypatch) -> None:
     """Resposta vazia de todos os providers → mensagem de erro suave."""
     monkeypatch.setattr(ai.settings, "ai_fallback", "none")
 
-    async def fake_ask(provider, history, system_prompt):  # noqa: ANN001, ARG001
+    async def fake_ask(provider, history, system_prompt, model=None):  # noqa: ANN001, ARG001
         return ""
 
     with patch.object(ai, "_ask_provider", side_effect=fake_ask):
@@ -80,7 +81,7 @@ async def test_route_and_ask_falls_back_when_primary_fails(monkeypatch) -> None:
 
     chamadas: list[str] = []
 
-    async def fake_ask(provider, history, system_prompt):  # noqa: ANN001, ARG001
+    async def fake_ask(provider, history, system_prompt, model=None):  # noqa: ANN001, ARG001
         chamadas.append(provider)
         if provider == "gemini":
             raise RuntimeError("gemini com quota estourada")
@@ -103,7 +104,7 @@ async def test_route_and_ask_explicit_fallback_groq(monkeypatch) -> None:
     monkeypatch.setattr(ai.settings, "ai_fallback", "groq")
     monkeypatch.setattr(ai.settings, "groq_api_key", "test-groq-key")
 
-    async def fake_ask(provider, history, system_prompt):  # noqa: ANN001, ARG001
+    async def fake_ask(provider, history, system_prompt, model=None):  # noqa: ANN001, ARG001
         if provider == "gemini":
             return ""
         return "resposta do groq"
@@ -118,6 +119,53 @@ async def test_route_and_ask_explicit_fallback_groq(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Fase 1B — reserva de MODELO dentro do Groq (não depende do Gemini)
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_route_and_ask_uses_groq_fallback_model(monkeypatch) -> None:
+    """Modelo principal do Groq falha → 2º modelo do Groq assume sozinho."""
+    monkeypatch.setattr(ai.settings, "ai_primary", "groq")
+    monkeypatch.setattr(ai.settings, "ai_fallback", "none")
+    monkeypatch.setattr(ai.settings, "groq_model", "llama-3.3-70b-versatile")
+    monkeypatch.setattr(ai.settings, "groq_fallback_model", "llama-3.1-8b-instant")
+
+    tentativas: list[str | None] = []
+
+    async def fake_ask(provider, history, system_prompt, model=None):  # noqa: ANN001, ARG001
+        tentativas.append(model)
+        if model == "llama-3.3-70b-versatile":
+            raise RuntimeError("429 rate limit")
+        return "resposta do modelo leve"
+
+    with patch.object(ai, "_ask_provider", side_effect=fake_ask):
+        text, model = await ai.route_and_ask([{"role": "user", "content": "oi"}])
+
+    assert text == "resposta do modelo leve"
+    assert model == "llama-3.1-8b-instant"
+    assert tentativas == ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+
+
+def test_build_attempts_groq_includes_fallback_model(monkeypatch) -> None:
+    """A fila do Groq tem o modelo principal e depois o de reserva."""
+    monkeypatch.setattr(ai.settings, "ai_primary", "groq")
+    monkeypatch.setattr(ai.settings, "ai_fallback", "none")
+    monkeypatch.setattr(ai.settings, "groq_model", "big")
+    monkeypatch.setattr(ai.settings, "groq_fallback_model", "small")
+
+    assert ai._build_attempts() == [("groq", "big"), ("groq", "small")]
+
+
+def test_build_attempts_dedups_when_fallback_equals_primary(monkeypatch) -> None:
+    """Reserva igual ao principal não duplica a tentativa."""
+    monkeypatch.setattr(ai.settings, "ai_primary", "groq")
+    monkeypatch.setattr(ai.settings, "ai_fallback", "none")
+    monkeypatch.setattr(ai.settings, "groq_model", "same")
+    monkeypatch.setattr(ai.settings, "groq_fallback_model", "same")
+
+    assert ai._build_attempts() == [("groq", "same")]
+
+
+# ---------------------------------------------------------------------------
 # customer_context — Sprint 1.3
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
@@ -125,7 +173,7 @@ async def test_route_and_ask_passes_customer_name_to_system_prompt() -> None:
     """customer_context.name é injetado no system prompt repassado ao provider."""
     capturado: dict[str, str] = {}
 
-    async def fake_ask(provider, history, system_prompt):  # noqa: ANN001, ARG001
+    async def fake_ask(provider, history, system_prompt, model=None):  # noqa: ANN001, ARG001
         capturado["sp"] = system_prompt
         return "oi"
 
@@ -145,7 +193,7 @@ async def test_route_and_ask_without_customer_context_uses_base_prompt() -> None
     """Sem customer_context, o system prompt é só o base (malu_v4.md)."""
     capturado: dict[str, str] = {}
 
-    async def fake_ask(provider, history, system_prompt):  # noqa: ANN001, ARG001
+    async def fake_ask(provider, history, system_prompt, model=None):  # noqa: ANN001, ARG001
         capturado["sp"] = system_prompt
         return "oi"
 
@@ -211,3 +259,91 @@ def test_resolve_fallback_skips_when_no_credential(monkeypatch) -> None:
     monkeypatch.setattr(ai.settings, "ai_fallback", "groq")
     monkeypatch.setattr(ai.settings, "groq_api_key", "")
     assert ai._resolve_fallback("gemini") is None
+
+
+# ---------------------------------------------------------------------------
+# extract_lead_data — extração ESTRUTURADA em JSON (substitui o regex)
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_extract_lead_data_parses_json(monkeypatch) -> None:
+    monkeypatch.setattr(ai.settings, "ai_fallback", "none")
+    payload = '{"destino": "Maceió", "forma_pagamento": null, "temperatura_lead": "quente"}'
+
+    async def fake_ask(provider, history, system_prompt, json_mode=False):  # noqa: ANN001, ARG001
+        assert json_mode is True  # extração SEMPRE em modo JSON
+        return payload
+
+    with patch.object(ai, "_ask_provider", side_effect=fake_ask):
+        data = await ai.extract_lead_data(
+            [{"role": "user", "content": "quero ir pra maceió"}]
+        )
+
+    assert data["destino"] == "Maceió"
+    assert data["forma_pagamento"] is None  # null preservado (não inventa)
+    assert data["temperatura_lead"] == "quente"
+
+
+@pytest.mark.asyncio
+async def test_extract_lead_data_tolerates_code_fences(monkeypatch) -> None:
+    monkeypatch.setattr(ai.settings, "ai_fallback", "none")
+
+    async def fake_ask(provider, history, system_prompt, json_mode=False):  # noqa: ANN001, ARG001
+        return '```json\n{"destino": "Salvador"}\n```'
+
+    with patch.object(ai, "_ask_provider", side_effect=fake_ask):
+        data = await ai.extract_lead_data([{"role": "user", "content": "x"}])
+
+    assert data == {"destino": "Salvador"}
+
+
+@pytest.mark.asyncio
+async def test_extract_lead_data_returns_none_on_garbage(monkeypatch) -> None:
+    monkeypatch.setattr(ai.settings, "ai_fallback", "none")
+
+    async def fake_ask(provider, history, system_prompt, json_mode=False):  # noqa: ANN001, ARG001
+        return "isso não é json nenhum"
+
+    with patch.object(ai, "_ask_provider", side_effect=fake_ask):
+        data = await ai.extract_lead_data([{"role": "user", "content": "x"}])
+
+    assert data is None  # chamador cai pro fallback regex
+
+
+@pytest.mark.asyncio
+async def test_extract_lead_data_falls_back_provider(monkeypatch) -> None:
+    """Primário falha → tenta o reserva (mesma lógica do chat)."""
+    monkeypatch.setattr(ai.settings, "ai_primary", "gemini")
+    monkeypatch.setattr(ai.settings, "ai_fallback", "auto")
+    monkeypatch.setattr(ai.settings, "groq_api_key", "k")
+    chamadas: list[str] = []
+
+    async def fake_ask(provider, history, system_prompt, json_mode=False):  # noqa: ANN001, ARG001
+        chamadas.append(provider)
+        if provider == "gemini":
+            raise RuntimeError("quota estourada")
+        return '{"destino": "Recife"}'
+
+    with patch.object(ai, "_ask_provider", side_effect=fake_ask):
+        data = await ai.extract_lead_data([{"role": "user", "content": "x"}])
+
+    assert data == {"destino": "Recife"}
+    assert chamadas == ["gemini", "groq"]
+
+
+def test_parse_json_object_handles_surrounding_text() -> None:
+    assert ai._parse_json_object('Aqui está: {"a": 1} pronto') == {"a": 1}
+    assert ai._parse_json_object("") is None
+    assert ai._parse_json_object("nada de json") is None
+
+
+def test_render_transcript_flattens_history() -> None:
+    t = ai._render_transcript(
+        [
+            {"role": "user", "content": "oi"},
+            {"role": "assistant", "content": "olá!"},
+            {"role": "system", "content": "ignorar"},
+        ]
+    )
+    assert "Cliente: oi" in t
+    assert "Malu: olá!" in t
+    assert "ignorar" not in t

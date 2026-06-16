@@ -2,15 +2,45 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Bot, Send, UserCheck, RotateCcw, AlertTriangle } from "lucide-react";
+import {
+  Bot,
+  Send,
+  UserCheck,
+  RotateCcw,
+  AlertTriangle,
+  PanelRightClose,
+  PanelRightOpen,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { formatPhone } from "@/lib/format";
 import type { ConversationDetail } from "@/lib/types";
 import {
   releaseConversation,
   replyConversation,
   takeoverConversation,
 } from "@/lib/actions";
+import { Avatar } from "./avatar";
+
+const QUICK_REPLIES: Array<{ label: string; text: string }> = [
+  {
+    label: "Já te retorno",
+    text: "Oi! Já recebi suas informações 💛 Vou verificar as melhores opções e já te retorno.",
+  },
+  { label: "Pedir datas", text: "Pode me confirmar as datas de ida e volta?" },
+  {
+    label: "Quantas pessoas",
+    text: "Quantas pessoas vão viajar? (adultos e crianças)",
+  },
+  {
+    label: "Preparando cotação",
+    text: "Estou preparando sua cotação e te mando aqui assim que ficar pronta!",
+  },
+  {
+    label: "Instagram",
+    text: "Me segue no Instagram pra ver as novidades: instagram.com/lumilhaseviagens",
+  },
+];
 
 function formatTime(iso: string): string {
   try {
@@ -23,12 +53,33 @@ function formatTime(iso: string): string {
   }
 }
 
+function dayKey(iso: string): string {
+  return new Date(iso).toDateString();
+}
+
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return "Hoje";
+  if (d.toDateString() === yesterday.toDateString()) return "Ontem";
+  return d.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "long",
+  });
+}
+
 export function ConversaView({
   conv,
   initialPaused,
+  onToggleLead,
+  leadOpen,
 }: {
   conv: ConversationDetail;
   initialPaused: boolean;
+  onToggleLead?: () => void;
+  leadOpen?: boolean;
 }) {
   const router = useRouter();
   const [paused, setPaused] = useState(initialPaused);
@@ -36,7 +87,7 @@ export function ConversaView({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const title = conv.customer_name ?? conv.phone;
+  const name = conv.customer_name?.trim() || formatPhone(conv.phone);
 
   function handleTakeover() {
     setError(null);
@@ -86,91 +137,112 @@ export function ConversaView({
     });
   }
 
+  let lastDay = "";
+
   return (
-    <div className="space-y-4">
+    <div className="flex h-full flex-col">
       {/* Cabeçalho */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4">
-        <div className="min-w-0">
-          <h1 className="text-lg font-semibold truncate">{title}</h1>
-          <p className="text-xs text-zinc-500">{conv.phone}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span
+      <div className="flex items-center gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+        <Avatar name={name} size={36} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold">{name}</p>
+          <p
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
-              paused
-                ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
-                : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+              "flex items-center gap-1 text-xs",
+              paused ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400",
             )}
           >
             {paused ? (
               <>
-                <UserCheck className="size-3.5" /> Você está atendendo
+                <UserCheck className="size-3" /> Você está atendendo
               </>
             ) : (
               <>
-                <Bot className="size-3.5" /> Malu atendendo
+                <Bot className="size-3" /> Malu atendendo
               </>
             )}
-          </span>
-          {paused ? (
-            <button
-              onClick={handleRelease}
-              disabled={pending}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-zinc-900 disabled:opacity-50"
-            >
-              <RotateCcw className="size-4" /> Devolver pra Malu
-            </button>
-          ) : (
-            <button
-              onClick={handleTakeover}
-              disabled={pending}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900 px-3 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50"
-            >
-              <UserCheck className="size-4" /> Assumir atendimento
-            </button>
-          )}
+          </p>
         </div>
+        {paused ? (
+          <button
+            onClick={handleRelease}
+            disabled={pending}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+          >
+            <RotateCcw className="size-4" /> Devolver
+          </button>
+        ) : (
+          <button
+            onClick={handleTakeover}
+            disabled={pending}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-50 hover:opacity-90 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+          >
+            <UserCheck className="size-4" /> Assumir
+          </button>
+        )}
+        {onToggleLead ? (
+          <button
+            onClick={onToggleLead}
+            aria-label={leadOpen ? "Esconder detalhes do lead" : "Mostrar detalhes do lead"}
+            title={leadOpen ? "Esconder detalhes" : "Mostrar detalhes"}
+            className="hidden size-9 shrink-0 place-items-center rounded-lg text-zinc-500 hover:bg-zinc-100 lg:grid dark:hover:bg-zinc-800"
+          >
+            {leadOpen ? (
+              <PanelRightClose className="size-5" />
+            ) : (
+              <PanelRightOpen className="size-5" />
+            )}
+          </button>
+        ) : null}
       </div>
 
       {/* Thread */}
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4 space-y-3 max-h-[55vh] overflow-y-auto">
+      <div className="flex-1 space-y-2 overflow-y-auto bg-zinc-50 px-4 py-4 dark:bg-zinc-900/40">
         {conv.messages.length === 0 ? (
-          <p className="text-sm text-zinc-500 text-center py-6">
+          <p className="py-6 text-center text-sm text-zinc-500">
             Sem mensagens nesta conversa.
           </p>
         ) : (
           conv.messages.map((m) => {
             const isClient = m.role === "user";
             const isHuman = m.model_used === "human";
+            const dk = dayKey(m.created_at);
+            const showDay = dk !== lastDay;
+            lastDay = dk;
             return (
-              <div
-                key={m.id}
-                className={cn("flex", isClient ? "justify-start" : "justify-end")}
-              >
-                <div
-                  className={cn(
-                    "max-w-[78%] rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap break-words",
-                    isClient
-                      ? "bg-zinc-100 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 rounded-bl-sm"
-                      : isHuman
-                        ? "bg-amber-500 text-white rounded-br-sm"
-                        : "bg-emerald-600 text-white rounded-br-sm",
-                  )}
-                >
-                  {!isClient ? (
-                    <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-80">
-                      {isHuman ? "Você (Lu)" : "Malu"}
-                    </div>
-                  ) : null}
-                  {m.content}
+              <div key={m.id}>
+                {showDay ? (
+                  <div className="my-3 text-center">
+                    <span className="rounded-full bg-white px-2.5 py-0.5 text-[11px] text-zinc-500 shadow-sm dark:bg-zinc-800">
+                      {dayLabel(m.created_at)}
+                    </span>
+                  </div>
+                ) : null}
+                <div className={cn("flex", isClient ? "justify-start" : "justify-end")}>
                   <div
                     className={cn(
-                      "mt-0.5 text-[10px]",
-                      isClient ? "text-zinc-400" : "text-white/70",
+                      "max-w-[80%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm",
+                      isClient
+                        ? "rounded-bl-sm bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100"
+                        : isHuman
+                          ? "rounded-br-sm bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                          : "rounded-br-sm bg-emerald-600 text-white",
                     )}
                   >
-                    {formatTime(m.created_at)}
+                    {!isClient ? (
+                      <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide opacity-80">
+                        {isHuman ? "Você (Lu)" : "Malu"}
+                      </div>
+                    ) : null}
+                    {m.content}
+                    <div
+                      className={cn(
+                        "mt-0.5 text-[10px]",
+                        isClient ? "text-zinc-400" : "text-white/70 dark:text-current dark:opacity-60",
+                      )}
+                    >
+                      {formatTime(m.created_at)}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -181,40 +253,52 @@ export function ConversaView({
 
       {/* Erro */}
       {error ? (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-800 p-3 text-sm text-amber-800 dark:text-amber-300">
-          <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+        <div className="flex items-start gap-2 border-t border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <span>{error}</span>
         </div>
       ) : null}
 
-      {/* Caixa de resposta */}
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3">
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder={
-            paused
-              ? "Escreva sua resposta para o cliente…"
-              : "Escreva… (ao enviar, você assume o atendimento e a Malu pausa)"
-          }
-          rows={2}
-          className="w-full resize-none bg-transparent text-sm outline-none placeholder:text-zinc-400"
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSend();
-          }}
-        />
-        <div className="flex items-center justify-between pt-2">
-          <span className="text-[11px] text-zinc-400">
-            Ctrl/⌘ + Enter para enviar
-          </span>
+      {/* Compositor */}
+      <div className="border-t border-zinc-200 p-3 dark:border-zinc-800">
+        <div className="mb-2 flex gap-1.5 overflow-x-auto pb-0.5">
+          {QUICK_REPLIES.map((r) => (
+            <button
+              key={r.label}
+              type="button"
+              onClick={() => setText(r.text)}
+              title={r.text}
+              className="shrink-0 rounded-full border border-zinc-200 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-end gap-2">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={
+              paused
+                ? "Escreva sua resposta…"
+                : "Escreva… (ao enviar, você assume e a Malu pausa)"
+            }
+            rows={1}
+            className="max-h-32 min-h-[40px] flex-1 resize-none rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none placeholder:text-zinc-400 focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:focus:border-zinc-600"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSend();
+            }}
+          />
           <button
             onClick={handleSend}
             disabled={pending || !text.trim()}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900 px-4 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-40"
+            aria-label="Enviar"
+            className="grid size-10 shrink-0 place-items-center rounded-xl bg-zinc-900 text-zinc-50 hover:opacity-90 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
           >
-            <Send className="size-4" /> Enviar
+            <Send className="size-4" />
           </button>
         </div>
+        <p className="mt-1.5 text-[11px] text-zinc-400">Ctrl/⌘ + Enter para enviar</p>
       </div>
     </div>
   );

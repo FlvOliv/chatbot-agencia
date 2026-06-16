@@ -94,6 +94,34 @@ def test_api_with_correct_key_passes_auth(
     assert data["total"] == 0
 
 
+def test_config_requires_key(client: TestClient) -> None:
+    r = client.get("/api/config")
+    assert r.status_code == 401
+
+
+def test_config_returns_non_secret_fields(client: TestClient, auth_headers) -> None:
+    """/api/config devolve a config operacional (fonte única do painel)."""
+    r = client.get("/api/config", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    # Campos esperados presentes
+    for key in (
+        "luciana_phone",
+        "ai_primary",
+        "ai_fallback",
+        "business_hours_start",
+        "business_hours_end",
+        "app_env",
+        "version",
+    ):
+        assert key in data
+    # Nunca pode vazar segredo
+    assert "wa_token" not in data
+    assert "groq_api_key" not in data
+    assert "crm_api_key" not in data
+    assert "database_url" not in data
+
+
 def test_api_dashboard_metrics_with_correct_key(
     client: TestClient, auth_headers
 ) -> None:
@@ -121,6 +149,7 @@ def test_routes_are_registered(client: TestClient) -> None:
     assert "/api/conversations/{phone}" in paths
     assert "/api/reservas" in paths
     assert "/api/dashboard/metrics" in paths
+    assert "/api/config" in paths
 
 
 def test_cors_headers_present(client: TestClient) -> None:

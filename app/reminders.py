@@ -26,8 +26,8 @@ REMINDER_5H = (
     "Quando puder, é só responder e a gente continua de onde parou. 😊"
 )
 REMINDER_23H = (
-    "Última chance pra hoje! Se não responder, vou arquivar essa conversa, "
-    "mas pode me chamar de novo quando quiser."
+    "Vou guardar sua conversa por aqui. Quando quiser, é só me chamar "
+    "que a gente continua de onde parou. 😊"
 )
 
 # (countdown_segundos, mensagem)

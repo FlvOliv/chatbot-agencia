@@ -15,5 +15,5 @@ docker-compose.yml
 Dockerfile
 README.md
 *.md
+!app/prompts/malu_v4.md
 files/
-scripts/

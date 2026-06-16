@@ -145,6 +145,8 @@ async def test_send_reminder_skips_when_transferred() -> None:
     """Se state == TRANSFERRED, send_message NÃO é chamado."""
     phone = "5511444444444"
     await set_state(phone, STATE_TRANSFERRED)
+    # lembrete é o "atual" (passa o guarda anti-spam) pra testar o skip de transfer
+    await get_redis().set(f"malu:reminders:{phone}", json.dumps(["tid-1"]))
 
     send_calls: list[tuple[str, str]] = []
 
@@ -153,7 +155,7 @@ async def test_send_reminder_skips_when_transferred() -> None:
         return True
 
     with patch.object(workers_tasks, "send_message", side_effect=fake_send):
-        result = await workers_tasks._send_reminder_async(phone, REMINDER_15M)
+        result = await workers_tasks._send_reminder_async(phone, REMINDER_15M, "tid-1")
 
     assert send_calls == []
     assert result["skipped"] == "transferred"
@@ -164,7 +166,8 @@ async def test_send_reminder_skips_when_transferred() -> None:
 async def test_send_reminder_skips_when_history_empty() -> None:
     """Se get_history retorna vazio (sessão expirou), send_message NÃO é chamado."""
     phone = "5511333333333"
-    # Sem state e sem history — fakeredis está vazio para este número
+    # Sem state e sem history, mas é o lembrete "atual" (passa o guarda anti-spam)
+    await get_redis().set(f"malu:reminders:{phone}", json.dumps(["tid-1"]))
 
     send_calls: list[tuple[str, str]] = []
 
@@ -173,7 +176,7 @@ async def test_send_reminder_skips_when_history_empty() -> None:
         return True
 
     with patch.object(workers_tasks, "send_message", side_effect=fake_send):
-        result = await workers_tasks._send_reminder_async(phone, REMINDER_5H)
+        result = await workers_tasks._send_reminder_async(phone, REMINDER_5H, "tid-1")
 
     assert send_calls == []
     assert result["skipped"] == "no_history"
@@ -184,10 +187,11 @@ async def test_send_reminder_skips_when_history_empty() -> None:
 async def test_send_reminder_sends_when_session_alive() -> None:
     """Caminho feliz: history não-vazio + state != TRANSFERRED → manda."""
     phone = "5511222222222"
-    # Popula history mas não seta state
+    # Popula history mas não seta state; e marca o lembrete como o "atual"
     from app.session import save_history
 
     await save_history(phone, [{"role": "user", "content": "oi"}])
+    await get_redis().set(f"malu:reminders:{phone}", json.dumps(["tid-1"]))
 
     send_calls: list[tuple[str, str]] = []
 
@@ -196,10 +200,35 @@ async def test_send_reminder_sends_when_session_alive() -> None:
         return True
 
     with patch.object(workers_tasks, "send_message", side_effect=fake_send):
-        result = await workers_tasks._send_reminder_async(phone, REMINDER_23H)
+        result = await workers_tasks._send_reminder_async(phone, REMINDER_23H, "tid-1")
 
     assert send_calls == [(phone, REMINDER_23H)]
     assert result["sent"] is True
+
+
+@pytest.mark.asyncio
+async def test_send_reminder_skips_when_superseded() -> None:
+    """ANTI-SPAM: lembrete cujo task_id não é o atual (velho/empilhado) é ignorado,
+    mesmo com sessão viva — evita o disparo em massa de lembretes acumulados."""
+    phone = "5511220000000"
+    from app.session import save_history
+
+    await save_history(phone, [{"role": "user", "content": "oi"}])
+    # a lista atual tem OUTRO id — este lembrete foi substituído
+    await get_redis().set(f"malu:reminders:{phone}", json.dumps(["id-novo"]))
+
+    send_calls: list[tuple[str, str]] = []
+
+    async def fake_send(to, text):  # noqa: ANN001
+        send_calls.append((to, text))
+        return True
+
+    with patch.object(workers_tasks, "send_message", side_effect=fake_send):
+        result = await workers_tasks._send_reminder_async(phone, REMINDER_15M, "id-velho")
+
+    assert send_calls == []  # NADA enviado
+    assert result["skipped"] == "superseded"
+    assert result["sent"] is False
 
 
 # ---------------------------------------------------------------------------

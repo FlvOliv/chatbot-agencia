@@ -9,6 +9,7 @@ Para subir o worker em dev:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -21,7 +22,8 @@ from app.briefing import _format_phone_display  # type: ignore[attr-defined]
 from app.config import settings
 from app.database import SessionLocal
 from app.models import Lead
-from app.session import STATE_TRANSFERRED, get_history, get_state
+from app.reminders import _key as _reminders_key
+from app.session import STATE_TRANSFERRED, get_history, get_redis, get_state
 from app.whatsapp import send_message
 
 logger = logging.getLogger(__name__)
@@ -79,21 +81,54 @@ def send_followup(self, phone: str) -> dict[str, Any]:  # noqa: ARG001
 
 
 @celery_app.task(name="malu.send_reminder", bind=True, max_retries=2)
-def send_reminder(self, phone: str, message: str) -> dict[str, Any]:  # noqa: ARG001
-    """Envia lembrete de inatividade — só se a sessão ainda estiver viva.
+def send_reminder(self, phone: str, message: str) -> dict[str, Any]:
+    """Envia lembrete de inatividade — só se ainda for o lembrete ATUAL e a
+    sessão estiver viva.
 
-    Skips:
+    Skips (anti-spam — NUNCA disparar lembrete velho/empilhado):
+        - task_id não está mais em `malu:reminders:{phone}` (foi cancelado ou
+          substituído por uma mensagem mais nova — o revoke do Celery não é
+          confiável, então conferimos aqui na hora de enviar)
         - state == STATE_TRANSFERRED  (Lu já assumiu a conversa)
         - get_history vazio           (sessão Redis expirou — cliente sumiu)
     """
     try:
-        return _run(_send_reminder_async(phone, message))
+        return _run(_send_reminder_async(phone, message, self.request.id))
     except Exception as exc:
         logger.exception("send_reminder failed for %s", phone)
         raise self.retry(exc=exc, countdown=60)
 
 
-async def _send_reminder_async(phone: str, message: str) -> dict[str, Any]:
+async def _is_current_reminder(phone: str, task_id: str | None) -> bool:
+    """True só se `task_id` ainda consta na lista de lembretes ATUAIS do número.
+
+    Essa é a trava anti-spam: lembretes antigos (de antes de uma nova mensagem,
+    ou já cancelados) não estão mais na chave → são ignorados no envio, mesmo
+    que tenham ficado empilhados na fila do Celery.
+    """
+    if not task_id:
+        return False
+    try:
+        raw = await get_redis().get(_reminders_key(phone))
+    except Exception:
+        logger.exception("reminder guard: redis get falhou para %s", phone)
+        return False  # na dúvida, NÃO envia (seguro contra spam)
+    if not raw:
+        return False
+    try:
+        ids = json.loads(raw)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(ids, list) and task_id in ids
+
+
+async def _send_reminder_async(
+    phone: str, message: str, task_id: str | None = None
+) -> dict[str, Any]:
+    if not await _is_current_reminder(phone, task_id):
+        logger.info("reminder skipped for %s — superseded/cancelled (%s)", phone, task_id)
+        return {"phone": phone, "sent": False, "skipped": "superseded"}
+
     state = await get_state(phone)
     if state == STATE_TRANSFERRED:
         logger.info("reminder skipped for %s — transferred to Lu", phone)

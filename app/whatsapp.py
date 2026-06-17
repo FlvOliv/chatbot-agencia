@@ -137,11 +137,12 @@ NON_TEXT_MESSAGE_TYPES: frozenset[str] = frozenset(
     }
 )
 
-# Resposta padrão quando o cliente manda algo que não é texto.
-# Mantém o tom acolhedor da Malu sem prometer suporte futuro.
-NON_TEXT_REPLY: str = (
-    "Oi! Por enquanto eu só consigo entender mensagens de texto. 😊\n\n"
-    "Pode escrever o que você precisa? Assim a Lu consegue te atender com mais rapidez."
+# Resposta quando o cliente manda mídia/documento: a Malu não lê — acolhe e
+# passa pra Lu (sem prometer transcrição/leitura). Tom acolhedor, ≤1 emoji.
+MEDIA_HANDOFF_REPLY: str = (
+    "Oi! Recebi seu arquivo aqui 🙌\n\n"
+    "Pra cuidar disso com a atenção que merece, já estou chamando a Lu — "
+    "ela continua seu atendimento por aqui. Já já ela te responde!"
 )
 
 

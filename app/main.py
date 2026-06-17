@@ -30,6 +30,7 @@ from app.briefing import (
     normalize_lead_data,
     notify_luciana,
     notify_luciana_ai_down,
+    notify_luciana_media,
     notify_luciana_returning_client,
     parse_lead_temp,
     render_briefing,
@@ -53,7 +54,7 @@ from app.database import SessionLocal, dispose_engine
 from app.debounce import collect_burst
 from app.models import Conversation
 from app.push import send_push_to_all
-from app.reminders import cancel_reminders, schedule_reminders
+from app.reminders import cancel_reminders, schedule_callbacks
 from app.reservas import has_reserva_ativa
 from app.sanitize import price_guard, sanitize_outgoing
 from app.session import (
@@ -69,7 +70,7 @@ from app.session import (
     set_state,
 )
 from app.whatsapp import (
-    NON_TEXT_REPLY,
+    MEDIA_HANDOFF_REPLY,
     detect_non_text_message,
     parse_incoming,
     send_message,
@@ -235,9 +236,8 @@ async def handle_message(data: dict[str, Any]) -> None:
            manda pergunta de intent (1/2), marca awaiting_intent, sai.
         6. Caminho normal: histórico → IA → resposta → briefing.
     """
-    # 0) Mensagem de tipo não-texto (áudio, imagem, vídeo, etc.)
-    #    Responde educadamente em vez de ficar muda. Não chama IA, não
-    #    persiste no histórico Redis (cliente vai reescrever em texto).
+    # 0) Mensagem de mídia/documento (áudio, imagem, vídeo, etc.)
+    #    A Malu NÃO lê/transcreve/extrai — acolhe e passa pra Lu (handoff).
     non_text = detect_non_text_message(data)
     if non_text is not None:
         nt_phone, nt_profile, nt_type = non_text
@@ -245,15 +245,13 @@ async def handle_message(data: dict[str, Any]) -> None:
             "non-text message type=%s from %s (profile=%r)",
             nt_type, nt_phone, nt_profile,
         )
-        try:
-            await send_message(nt_phone, NON_TEXT_REPLY)
-        except Exception:
-            logger.exception("send NON_TEXT_REPLY failed for %s", nt_phone)
-        asyncio.create_task(
-            _persist_conversation(
-                nt_phone, f"[mensagem de {nt_type}]", NON_TEXT_REPLY, f"non-text:{nt_type}"
+        # Já transferida? Malu fica em silêncio (Lu cuida) — só audita.
+        if await get_state(nt_phone) == STATE_TRANSFERRED:
+            asyncio.create_task(
+                _persist_conversation(nt_phone, f"[mídia: {nt_type}]", "", "transferred")
             )
-        )
+            return
+        await _handle_media_message(nt_phone, nt_profile, nt_type)
         return
 
     parsed = parse_incoming(data)
@@ -446,7 +444,8 @@ async def handle_message(data: dict[str, Any]) -> None:
     if briefing_block:
         await cancel_reminders(phone)
     else:
-        await schedule_reminders(phone)
+        # t0 = agora (≈ esta mensagem do cliente); agenda 30 min + pré-24h.
+        await schedule_callbacks(phone, name=customer_name)
 
 
 async def _transfer_to_lu(
@@ -496,6 +495,40 @@ async def _handle_ai_failure(
         await notify_luciana_ai_down(phone, customer_name)
     except Exception:
         logger.exception("notify_luciana_ai_down failed for %s", phone)
+    await asyncio.gather(send_task, audit_task, return_exceptions=True)
+
+
+async def _handle_media_message(
+    phone: str,
+    profile_name: str | None,
+    media_type: str,
+) -> None:
+    """Cliente mandou mídia/documento — a Malu não lê: acolhe e passa pra Lu.
+
+    Marca STATE_TRANSFERRED (Malu cala), para os callbacks, avisa a Lu e
+    nunca tenta transcrever/extrair o conteúdo.
+    """
+    customer_name = profile_name
+    try:
+        async with SessionLocal() as db:
+            cliente = await get_or_create_cliente(phone, profile_name, db)
+            await db.commit()
+            customer_name = cliente.display_name
+    except Exception:
+        logger.exception("get_or_create_cliente (media) failed for %s", phone)
+
+    await set_state(phone, STATE_TRANSFERRED)
+    await cancel_reminders(phone)
+    send_task = asyncio.create_task(send_message(phone, MEDIA_HANDOFF_REPLY))
+    audit_task = asyncio.create_task(
+        _persist_conversation(
+            phone, f"[mídia: {media_type}]", MEDIA_HANDOFF_REPLY, f"media:{media_type}"
+        )
+    )
+    try:
+        await notify_luciana_media(phone, customer_name, media_type)
+    except Exception:
+        logger.exception("notify_luciana_media failed for %s", phone)
     await asyncio.gather(send_task, audit_task, return_exceptions=True)
 
 

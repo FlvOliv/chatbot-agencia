@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from app.whatsapp import (
+    MEDIA_HANDOFF_REPLY,
     NON_TEXT_MESSAGE_TYPES,
-    NON_TEXT_REPLY,
     detect_non_text_message,
     parse_incoming,
 )
@@ -130,13 +130,13 @@ def test_parse_incoming_returns_none_for_non_text() -> None:
 
 
 # ---------------------------------------------------------------------------
-# NON_TEXT_REPLY — qualidade
+# MEDIA_HANDOFF_REPLY — qualidade
 # ---------------------------------------------------------------------------
-def test_non_text_reply_is_warm_and_useful() -> None:
-    assert NON_TEXT_REPLY
-    assert len(NON_TEXT_REPLY) > 50
-    # Menciona texto explicitamente — orienta o cliente
-    assert "texto" in NON_TEXT_REPLY.lower()
-    # Não promete suporte futuro ("em breve", "estou aprendendo") — evita expectativa errada
-    assert "em breve" not in NON_TEXT_REPLY.lower()
-    assert "aprendendo" not in NON_TEXT_REPLY.lower()
+def test_media_handoff_reply_hands_to_lu_without_promising_to_read() -> None:
+    assert MEDIA_HANDOFF_REPLY
+    assert len(MEDIA_HANDOFF_REPLY) > 50
+    # Passa pra Lu (handoff)
+    assert "lu" in MEDIA_HANDOFF_REPLY.lower()
+    # Nunca promete ler/transcrever a mídia, nem suporte futuro
+    assert "transcre" not in MEDIA_HANDOFF_REPLY.lower()
+    assert "em breve" not in MEDIA_HANDOFF_REPLY.lower()

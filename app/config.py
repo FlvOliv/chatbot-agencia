@@ -70,6 +70,19 @@ class Settings(BaseSettings):
     # mensagens picadas antes de chamar a IA. 0 = desliga (responde na hora).
     debounce_seconds: float = Field(default=7.0)
 
+    # Callbacks (follow-ups). O de 30 min dispara sempre; o pré-24h respeita
+    # o horário de silêncio e um buffer antes de fechar a janela de 24h da Meta.
+    callback_timezone: str = Field(
+        default="America/Sao_Paulo",
+        description="Fuso usado pra calcular silêncio e janela do callback pré-24h",
+    )
+    quiet_start: int = Field(default=20, description="Hora (0-23) que começa o silêncio")
+    quiet_end: int = Field(default=8, description="Hora (0-23) que termina o silêncio")
+    pre24h_buffer_minutes: int = Field(
+        default=60,
+        description="Minutos antes do fim da janela de 24h pra disparar o pré-24h",
+    )
+
     # Push web (Fase 3): chaves VAPID pra notificar a Lu no navegador.
     # Se vazias, o push fica desligado (não quebra nada). Geradas com py_vapid.
     vapid_public_key: str = Field(default="")

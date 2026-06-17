@@ -417,6 +417,34 @@ async def notify_luciana_ai_down(
     return ok
 
 
+async def notify_luciana_media(
+    customer_phone: str,
+    customer_name: str | None,
+    media_type: str,
+) -> bool:
+    """Alerta a Lu de que o cliente enviou mídia/documento que a Malu não lê.
+
+    A Malu não tenta transcrever/extrair: acolhe o cliente e passa a conversa
+    pra Lu assumir manualmente no painel.
+    """
+    display = _format_phone_display(customer_phone)
+    name_part = f"*{customer_name}*" if customer_name else "Um cliente"
+
+    body = (
+        f"📎 *Cliente enviou mídia/documento*\n\n"
+        f"📱 {display}\n"
+        f"👤 {name_part}\n"
+        f"🗂️ Tipo: {media_type}\n\n"
+        f"A Malu não lê mídia e passou a conversa pra você.\n\n"
+        f"👉 Responder no painel: {_panel_link(customer_phone)}"
+    )
+
+    ok = await send_message(settings.luciana_phone, body)
+    if not ok:
+        logger.error("falha ao notificar Lu sobre mídia do cliente %s", customer_phone)
+    return ok
+
+
 async def save_lead(
     phone: str,
     db: AsyncSession,

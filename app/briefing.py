@@ -133,6 +133,72 @@ def normalize_temp(value: object) -> str:
     return "morno"
 
 
+# ---------------------------------------------------------------------------
+# Normalização de tipo (P1) — datas e quantidades NUNCA podem virar texto livre
+# ---------------------------------------------------------------------------
+# Campos que devem sair estruturados; não-coercível = "pendente" (a Malu
+# confirma antes de fechar — Regra Inquebrável 4).
+_DATE_FIELDS = ("data_ida", "data_volta")
+_INT_FIELDS = ("qtd_adultos", "qtd_criancas", "qtd_quartos")
+_AGES_FIELD = "idades_criancas"
+
+# Data concreta = dia+mês numéricos (12/11, 12-11-2026) OU "12 de novembro".
+_DATE_CONCRETE_RE = re.compile(
+    r"\b\d{1,2}[/\-.]\d{1,2}(?:[/\-.]\d{2,4})?\b"
+    r"|\b\d{1,2}\s+de\s+[^\W\d_]+",
+    re.IGNORECASE,
+)
+
+# Números por extenso comuns (até 12 cobre passageiros/quartos com folga).
+_NUM_WORDS = {
+    "zero": 0, "nenhum": 0, "nenhuma": 0, "um": 1, "uma": 1, "dois": 2,
+    "duas": 2, "tres": 3, "três": 3, "quatro": 4, "cinco": 5, "seis": 6,
+    "sete": 7, "oito": 8, "nove": 9, "dez": 10, "onze": 11, "doze": 12,
+}
+
+
+def _pendente(raw: str) -> str:
+    """Marca um valor não resolvido, preservando o que o cliente disse."""
+    return f'pendente (cliente disse: "{raw}")'
+
+
+def _coerce_int(raw: str) -> int | None:
+    """Extrai um inteiro de '2', '2 adultos', 'duas'... ou None se não der."""
+    m = re.search(r"\d+", raw)
+    if m:
+        return int(m.group())
+    for word, n in _NUM_WORDS.items():
+        if re.search(rf"\b{word}\b", raw, re.IGNORECASE):
+            return n
+    return None
+
+
+def normalize_lead_data(data: dict) -> dict:
+    """Coage datas/quantidades a tipos concretos antes de salvar/exibir.
+
+    Data relativa/vaga ("Novembro, perto do feriado") ou quantidade não
+    numérica vira `pendente` (preservando o texto do cliente) — nunca texto
+    solto no briefing. Campo nulo continua nulo (→ "Não informado").
+    """
+    out = dict(data)
+    for field in _DATE_FIELDS:
+        raw = _clean_value(out.get(field))
+        if raw is None:
+            continue
+        out[field] = raw if _DATE_CONCRETE_RE.search(raw) else _pendente(raw)
+    for field in _INT_FIELDS:
+        raw = _clean_value(out.get(field))
+        if raw is None:
+            continue
+        n = _coerce_int(raw)
+        out[field] = str(n) if n is not None else _pendente(raw)
+    raw_ages = _clean_value(out.get(_AGES_FIELD))
+    if raw_ages is not None:
+        ages = re.findall(r"\d+", raw_ages)
+        out[_AGES_FIELD] = ", ".join(ages) if ages else _pendente(raw_ages)
+    return out
+
+
 def render_briefing(data: dict, customer_phone: str | None = None) -> str:
     """Monta o markdown do briefing pra Lu a partir dos dados ESTRUTURADOS.
 

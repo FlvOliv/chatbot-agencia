@@ -47,3 +47,18 @@ async def test_ai_failure_silences_and_calls_lu(monkeypatch) -> None:
     assert calls["sent_to"] == "5511955554444"
     assert calls["persist_model"] == "flow:ai-failure"
     assert calls["notified"] == ("5511955554444", "João")  # Lu avisada
+
+
+def test_closing_reply_sempre_tem_cta() -> None:
+    """Toda finalização leva o CTA: Instagram + grupo VIP (#7)."""
+    reply = main._build_closing_reply(None)
+    assert "instagram.com/lumilhaseviagens" in reply
+    assert "chat.whatsapp.com/" in reply
+    assert "Protocolo" not in reply  # sem número → sem linha de protocolo
+
+
+def test_closing_reply_inclui_protocolo() -> None:
+    reply = main._build_closing_reply(1007)
+    assert "#1007" in reply
+    assert "instagram.com/lumilhaseviagens" in reply
+    assert "chat.whatsapp.com/" in reply

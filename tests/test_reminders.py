@@ -1,11 +1,12 @@
-"""Testes dos lembretes de inatividade (Sprint 2).
+"""Testes do lembrete de inatividade.
 
 Mockamos o Celery — não disparamos jobs reais, só checamos contratos:
-    - schedule_reminders chama apply_async 3x com countdowns corretos
+    - schedule_reminders chama apply_async 1x com o countdown correto (30 min)
     - schedule_reminders chama cancel_reminders antes (idempotência)
     - cancel_reminders revoga cada task_id e apaga a key no Redis
     - send_reminder pula se state == TRANSFERRED
     - send_reminder pula se get_history retorna vazio
+    - send_reminder pula lembrete superado (anti-spam)
 """
 
 from __future__ import annotations
@@ -18,9 +19,7 @@ import pytest
 
 from app import reminders
 from app.reminders import (
-    REMINDER_15M,
-    REMINDER_5H,
-    REMINDER_23H,
+    REMINDER_30M,
     cancel_reminders,
     schedule_reminders,
 )
@@ -32,8 +31,8 @@ from workers import tasks as workers_tasks
 # schedule_reminders
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_schedule_reminders_calls_apply_async_with_correct_countdowns() -> None:
-    """Os 3 lembretes devem ser agendados com countdowns 900s, 18000s, 82800s."""
+async def test_schedule_reminders_calls_apply_async_with_correct_countdown() -> None:
+    """Um único lembrete deve ser agendado com countdown 1800s (30 min)."""
     chamadas: list[dict] = []
 
     def fake_apply_async(args, countdown):  # noqa: ANN001
@@ -46,16 +45,14 @@ async def test_schedule_reminders_calls_apply_async_with_correct_countdowns() ->
     ):
         await schedule_reminders("5511999999999")
 
-    assert len(chamadas) == 3
-    assert [c["countdown"] for c in chamadas] == [900, 18000, 82800]
-    assert chamadas[0]["args"] == ["5511999999999", REMINDER_15M]
-    assert chamadas[1]["args"] == ["5511999999999", REMINDER_5H]
-    assert chamadas[2]["args"] == ["5511999999999", REMINDER_23H]
+    assert len(chamadas) == 1
+    assert [c["countdown"] for c in chamadas] == [1800]
+    assert chamadas[0]["args"] == ["5511999999999", REMINDER_30M]
 
 
 @pytest.mark.asyncio
-async def test_schedule_reminders_persists_task_ids_to_redis() -> None:
-    """Os 3 task_ids retornados pelo Celery são salvos em malu:reminders:{phone}."""
+async def test_schedule_reminders_persists_task_id_to_redis() -> None:
+    """O task_id retornado pelo Celery é salvo em malu:reminders:{phone}."""
 
     def fake_apply_async(args, countdown):  # noqa: ANN001, ARG001
         return SimpleNamespace(id=f"tid-{countdown}")
@@ -69,7 +66,7 @@ async def test_schedule_reminders_persists_task_ids_to_redis() -> None:
     raw = await client.get("malu:reminders:5511888888888")
     assert raw is not None
     stored = json.loads(raw)
-    assert stored == ["tid-900", "tid-18000", "tid-82800"]
+    assert stored == ["tid-1800"]
 
 
 @pytest.mark.asyncio
@@ -89,10 +86,10 @@ async def test_schedule_reminders_cancels_before_scheduling() -> None:
         # Primeira chamada — não há nada pra revogar
         await schedule_reminders("5511777777777")
         assert revoke_calls == []
-        # Segunda chamada — deve revogar os 3 da primeira antes de reagendar
+        # Segunda chamada — deve revogar o da primeira antes de reagendar
         await schedule_reminders("5511777777777")
 
-    assert revoke_calls == ["new-900", "new-18000", "new-82800"]
+    assert revoke_calls == ["new-1800"]
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +152,7 @@ async def test_send_reminder_skips_when_transferred() -> None:
         return True
 
     with patch.object(workers_tasks, "send_message", side_effect=fake_send):
-        result = await workers_tasks._send_reminder_async(phone, REMINDER_15M, "tid-1")
+        result = await workers_tasks._send_reminder_async(phone, REMINDER_30M, "tid-1")
 
     assert send_calls == []
     assert result["skipped"] == "transferred"
@@ -176,7 +173,7 @@ async def test_send_reminder_skips_when_history_empty() -> None:
         return True
 
     with patch.object(workers_tasks, "send_message", side_effect=fake_send):
-        result = await workers_tasks._send_reminder_async(phone, REMINDER_5H, "tid-1")
+        result = await workers_tasks._send_reminder_async(phone, REMINDER_30M, "tid-1")
 
     assert send_calls == []
     assert result["skipped"] == "no_history"
@@ -200,9 +197,9 @@ async def test_send_reminder_sends_when_session_alive() -> None:
         return True
 
     with patch.object(workers_tasks, "send_message", side_effect=fake_send):
-        result = await workers_tasks._send_reminder_async(phone, REMINDER_23H, "tid-1")
+        result = await workers_tasks._send_reminder_async(phone, REMINDER_30M, "tid-1")
 
-    assert send_calls == [(phone, REMINDER_23H)]
+    assert send_calls == [(phone, REMINDER_30M)]
     assert result["sent"] is True
 
 
@@ -224,7 +221,7 @@ async def test_send_reminder_skips_when_superseded() -> None:
         return True
 
     with patch.object(workers_tasks, "send_message", side_effect=fake_send):
-        result = await workers_tasks._send_reminder_async(phone, REMINDER_15M, "id-velho")
+        result = await workers_tasks._send_reminder_async(phone, REMINDER_30M, "id-velho")
 
     assert send_calls == []  # NADA enviado
     assert result["skipped"] == "superseded"
@@ -234,13 +231,10 @@ async def test_send_reminder_skips_when_superseded() -> None:
 # ---------------------------------------------------------------------------
 # Constantes — sanity
 # ---------------------------------------------------------------------------
-def test_reminder_messages_are_distinct_and_non_empty() -> None:
-    msgs = {REMINDER_15M, REMINDER_5H, REMINDER_23H}
-    assert len(msgs) == 3
-    for m in msgs:
-        assert m and len(m) > 30
+def test_reminder_message_non_empty() -> None:
+    assert REMINDER_30M and len(REMINDER_30M) > 30
 
 
 def test_reminder_schedule_countdowns() -> None:
     countdowns = [c for c, _ in reminders.REMINDER_SCHEDULE]
-    assert countdowns == [900, 18000, 82800]
+    assert countdowns == [1800]

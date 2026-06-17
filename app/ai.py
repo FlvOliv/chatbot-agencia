@@ -36,6 +36,46 @@ _MAX_TOKENS = 1024
 
 
 # ---------------------------------------------------------------------------
+# Instrumentação de consumo (só medição — não altera comportamento)
+# ---------------------------------------------------------------------------
+def _log_usage(provider: str, model: str, usage: Any, json_mode: bool = False) -> None:
+    """Loga os tokens de uma chamada, normalizando os dois SDKs.
+
+    Groq (estilo OpenAI): prompt_tokens / completion_tokens / total_tokens,
+        cache em prompt_tokens_details.cached_tokens.
+    Gemini: prompt_token_count / candidates_token_count / total_token_count,
+        cache em cached_content_token_count.
+
+    Nunca levanta — instrumentação não pode derrubar o caminho da resposta.
+    """
+    if usage is None:
+        return
+    try:
+        prompt = getattr(usage, "prompt_tokens", None)
+        if prompt is None:
+            prompt = getattr(usage, "prompt_token_count", 0)
+        completion = getattr(usage, "completion_tokens", None)
+        if completion is None:
+            completion = getattr(usage, "candidates_token_count", 0)
+        total = getattr(usage, "total_tokens", None)
+        if total is None:
+            total = getattr(usage, "total_token_count", 0)
+        cached = 0
+        details = getattr(usage, "prompt_tokens_details", None)
+        if details is not None:
+            cached = getattr(details, "cached_tokens", 0) or 0
+        if not cached:
+            cached = getattr(usage, "cached_content_token_count", 0) or 0
+        kind = "extract" if json_mode else "chat"
+        logger.info(
+            "[ai.usage] %s/%s kind=%s prompt=%s completion=%s total=%s cached=%s",
+            provider, model, kind, prompt, completion, total, cached,
+        )
+    except Exception:
+        logger.debug("falha ao logar usage de %s/%s", provider, model, exc_info=True)
+
+
+# ---------------------------------------------------------------------------
 # System prompt
 # ---------------------------------------------------------------------------
 @lru_cache(maxsize=1)
@@ -132,6 +172,7 @@ def _ask_malu_gemini_sync(
 
     last_message = history[-1].get("content", "")
     response = chat.send_message(last_message)
+    _log_usage("gemini", settings.gemini_model, getattr(response, "usage_metadata", None), json_mode)
     return (getattr(response, "text", "") or "").strip()
 
 
@@ -185,12 +226,15 @@ async def _ask_malu_groq(
         "model": model or settings.groq_model,
         "messages": messages,
         "max_tokens": _MAX_TOKENS,
-        "temperature": 0.0 if json_mode else 0.7,
+        # 0.2 (não 0.7): respostas mais previsíveis e aderentes às regras —
+        # menos escapes (preço/milhas/inglês). Extração JSON segue em 0.0.
+        "temperature": 0.0 if json_mode else 0.2,
     }
     if json_mode:
         kwargs["response_format"] = {"type": "json_object"}
 
     response = await client.chat.completions.create(**kwargs)  # type: ignore[arg-type]
+    _log_usage("groq", kwargs["model"], getattr(response, "usage", None), json_mode)
 
     choices = getattr(response, "choices", None) or []
     if not choices:

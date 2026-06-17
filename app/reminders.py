@@ -1,11 +1,12 @@
-"""Lembretes de inatividade — agenda 3 follow-ups assíncronos via Celery.
+"""Lembrete de inatividade — agenda 1 follow-up assíncrono via Celery.
 
-Sempre que o cliente responde, a Malu agenda 3 lembretes a partir do
-timestamp atual (15min / 5h / 23h). Qualquer mensagem nova cancela os
-lembretes pendentes e reagenda — `schedule_reminders` é idempotente.
+Sempre que a Malu responde e a coleta ainda está em aberto, agenda UM
+lembrete para 30 min depois. Qualquer mensagem nova do cliente cancela o
+lembrete pendente e reagenda — `schedule_reminders` é idempotente; quando o
+briefing é finalizado, o chamador cancela e não reagenda.
 
-Os `task_ids` dos jobs Celery são guardados em Redis na key
-`malu:reminders:{phone}` para podermos chamar `.revoke()` neles depois.
+O `task_id` do job Celery é guardado em Redis na key
+`malu:reminders:{phone}` para podermos chamar `.revoke()` nele depois.
 """
 
 from __future__ import annotations
@@ -17,24 +18,14 @@ from app.session import get_redis
 
 logger = logging.getLogger(__name__)
 
-REMINDER_15M = (
-    "Oi, ainda está por aí? Se preferir continuar depois, é só me chamar. "
-    "Se quiser encerrar agora, digite `sair`."
-)
-REMINDER_5H = (
-    "Estou guardando os dados da sua viagem aqui. "
-    "Quando puder, é só responder e a gente continua de onde parou. 😊"
-)
-REMINDER_23H = (
-    "Vou guardar sua conversa por aqui. Quando quiser, é só me chamar "
-    "que a gente continua de onde parou. 😊"
+REMINDER_30M = (
+    "Oi! Quando puder, é só continuar de onde paramos por aqui — "
+    "faltam só alguns detalhes pra Lu preparar sua cotação. 😊"
 )
 
-# (countdown_segundos, mensagem)
+# Lembrete ÚNICO: 30 min após a última mensagem da Malu. (countdown_segundos, mensagem)
 REMINDER_SCHEDULE: tuple[tuple[int, str], ...] = (
-    (15 * 60, REMINDER_15M),         # 900s
-    (5 * 60 * 60, REMINDER_5H),      # 18000s
-    (23 * 60 * 60, REMINDER_23H),    # 82800s
+    (30 * 60, REMINDER_30M),         # 1800s
 )
 
 
@@ -78,10 +69,10 @@ async def cancel_reminders(phone: str) -> None:
 
 
 async def schedule_reminders(phone: str) -> None:
-    """Agenda os 3 lembretes para o número.
+    """Agenda o lembrete único (30 min) para o número.
 
-    Cancela quaisquer lembretes pendentes antes — chamadas repetidas
-    não duplicam jobs.
+    Cancela qualquer lembrete pendente antes — chamadas repetidas não
+    duplicam jobs.
     """
     await cancel_reminders(phone)
 

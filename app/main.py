@@ -27,6 +27,7 @@ from app.api import api_router
 from app.briefing import (
     extract_customer_name,
     lead_columns_from_data,
+    normalize_lead_data,
     notify_luciana,
     notify_luciana_ai_down,
     notify_luciana_returning_client,
@@ -54,6 +55,7 @@ from app.models import Conversation
 from app.push import send_push_to_all
 from app.reminders import cancel_reminders, schedule_reminders
 from app.reservas import has_reserva_ativa
+from app.sanitize import price_guard, sanitize_outgoing
 from app.session import (
     STATE_AWAITING_INTENT,
     STATE_TRANSFERRED,
@@ -84,15 +86,12 @@ logger = logging.getLogger("malu")
 # clientes fecham vendo as promos do grupo. (Para multi-tenant, virar config
 # por agência.)
 COLETA_CONCLUIDA_REPLY = (
-    "Recebi seus dados e já vou começar a buscar a melhor opção para a sua viagem, "
-    "com todo carinho 💛\n\n"
-    "Enquanto a Lu prepara sua cotação, já segue a gente no Instagram? Por lá saem "
-    "dicas de viagem e oportunidades ✈️🌎\n"
-    "👉 https://instagram.com/lumilhaseviagens\n\n"
-    "📣 Entre também no nosso grupo VIP de promoções no WhatsApp (poucos avisos, "
-    "sempre direto ao ponto 😄):\n"
-    "🔗 https://chat.whatsapp.com/KkWYCAtn3z46bg8W0rK4oc\n\n"
-    "Em breve volto com sua cotação! Qualquer coisa, é só me chamar por aqui."
+    "Recebi tudo! Já vou organizar pra Lu preparar sua cotação com calma. ✈️\n\n"
+    "Enquanto isso, segue a gente e entra no nosso grupo de promoções — é onde "
+    "saem as melhores oportunidades, sem spam:\n\n"
+    "Instagram: https://instagram.com/lumilhaseviagens\n"
+    "Grupo VIP: https://chat.whatsapp.com/KkWYCAtn3z46bg8W0rK4oc\n\n"
+    "Logo a Lu te chama por aqui. 🙂"
 )
 
 # Mensagem ÚNICA quando a IA cai (primária + reserva). A Malu avisa o cliente
@@ -394,6 +393,21 @@ async def handle_message(data: dict[str, Any]) -> None:
     # que a Lu JÁ fez → passa a conversa pra Lu (sem coleta, sem pedir dados).
     customer_reply, wants_transfer = split_reply_and_transfer(customer_reply)
 
+    # Guard de preço (P0) — rede de segurança determinística: se o modelo
+    # escapou e citou valor, troca pela frase segura ANTES de qualquer envio.
+    # Vale pra todos os modelos da cadeia (o 8b/gemini ignoram regras sutis).
+    customer_reply, price_blocked = price_guard(customer_reply)
+    if price_blocked:
+        logger.warning(
+            "price_guard bloqueou valor na resposta ao cliente %s (modelo=%s)",
+            phone,
+            model_used,
+        )
+
+    # Sanitizer de formatação (P2) — converte ** → *, tira # e asterisco órfão
+    # antes de enviar (o WhatsApp usa * único pra negrito).
+    customer_reply = sanitize_outgoing(customer_reply)
+
     if wants_transfer:
         await _transfer_to_lu(phone, user_text, customer_reply, customer_name)
         return
@@ -412,13 +426,9 @@ async def handle_message(data: dict[str, Any]) -> None:
                 url=f"/conversas/{phone}",
             )
         )
-        if not customer_reply:
-            customer_reply = COLETA_CONCLUIDA_REPLY
-        if numero is not None:
-            customer_reply = (
-                customer_reply.rstrip()
-                + f"\n\n🔖 *Protocolo da sua solicitação:* #{numero}"
-            )
+        # Fechamento controlado SEMPRE — CTA (Instagram + grupo VIP) em toda
+        # finalização de cotação, não só quando o modelo não escreve nada.
+        customer_reply = _build_closing_reply(numero)
 
     history.append({"role": "assistant", "content": customer_reply})
     await save_history(phone, history)
@@ -430,9 +440,13 @@ async def handle_message(data: dict[str, Any]) -> None:
 
     await asyncio.gather(send_task, audit_task, return_exceptions=True)
 
-    # Reagenda lembretes de inatividade a partir do momento atual.
-    # cancel + reschedule é idempotente (vide app/reminders.py).
-    await schedule_reminders(phone)
+    # Lembrete de inatividade: só enquanto a coleta está em aberto. Se o
+    # briefing já foi finalizado (cotação completa), não cutuca — limpa
+    # qualquer lembrete pendente. cancel/schedule são idempotentes.
+    if briefing_block:
+        await cancel_reminders(phone)
+    else:
+        await schedule_reminders(phone)
 
 
 async def _transfer_to_lu(
@@ -485,6 +499,19 @@ async def _handle_ai_failure(
     await asyncio.gather(send_task, audit_task, return_exceptions=True)
 
 
+def _build_closing_reply(numero: int | None) -> str:
+    """Mensagem de fechamento ao cliente em toda finalização de cotação.
+
+    O CTA (Instagram + grupo VIP) vai SEMPRE — antes só ia quando o modelo não
+    escrevia nada junto do briefing. Mensagem controlada e única por cotação
+    (boa pra qualidade Meta). Anexa o protocolo (#1001...) quando houver.
+    """
+    reply = COLETA_CONCLUIDA_REPLY
+    if numero is not None:
+        reply = reply.rstrip() + f"\n\n🔖 *Protocolo da sua solicitação:* #{numero}"
+    return reply
+
+
 async def _finalize_lead(
     phone: str,
     history: list[dict[str, Any]],
@@ -502,6 +529,7 @@ async def _finalize_lead(
     data = await extract_lead_data(history)
 
     if data:
+        data = normalize_lead_data(data)  # datas/qtd → tipo concreto ou "pendente"
         briefing_md = render_briefing(data, phone)
         cols = lead_columns_from_data(data)
         numero: int | None = None

@@ -96,6 +96,7 @@ def _build_system_prompt(customer_context: dict[str, Any] | None) -> str:
     `customer_context` aceita:
         - "name": str → nome do cliente (do profile WhatsApp ou confirmado)
         - "is_first_turn": bool → True na primeira mensagem da sessão
+        - "from_audio": bool → True se a mensagem veio de um áudio transcrito
     """
     base = _load_system_prompt()
     if not customer_context:
@@ -120,6 +121,18 @@ def _build_system_prompt(customer_context: dict[str, Any] | None) -> str:
                 f"O cliente atende por **{name}**. Continue chamando-o pelo "
                 f"nome quando fizer sentido no fluxo natural."
             )
+
+    if customer_context.get("from_audio"):
+        extras.append(
+            "\n\n## Esta mensagem veio de um ÁUDIO transcrito\n"
+            "O cliente mandou um áudio que foi transcrito automaticamente — pode "
+            "ter pequenos erros (nomes, datas, números). Antes de seguir, "
+            "**confirme em 1 linha, de forma leve e natural, o que você "
+            'entendeu** (ex.: "Só pra confirmar: você quer ir pra Bariloche em '
+            'julho, certo?") e então continue o fluxo normalmente. Se a '
+            "transcrição ficou confusa/sem sentido, peça gentilmente pra ele "
+            "repetir — por escrito ou em outro áudio."
+        )
 
     if not extras:
         return base

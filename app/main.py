@@ -69,9 +69,12 @@ from app.session import (
     save_history,
     set_state,
 )
+from app.transcribe import transcribe_audio
 from app.whatsapp import (
     MEDIA_HANDOFF_REPLY,
+    detect_audio_message,
     detect_non_text_message,
+    download_media,
     parse_incoming,
     send_message,
 )
@@ -236,8 +239,23 @@ async def handle_message(data: dict[str, Any]) -> None:
            manda pergunta de intent (1/2), marca awaiting_intent, sai.
         6. Caminho normal: histórico → IA → resposta → briefing.
     """
-    # 0) Mensagem de mídia/documento (áudio, imagem, vídeo, etc.)
-    #    A Malu NÃO lê/transcreve/extrai — acolhe e passa pra Lu (handoff).
+    # 0) Áudio (nota de voz / arquivo) → transcreve e segue como texto (quando
+    #    ligado); desligado ou em erro, cai no handoff de mídia (acolhe + Lu).
+    audio = detect_audio_message(data)
+    if audio is not None:
+        a_phone, a_profile, a_media_id = audio
+        logger.info("audio message from %s (profile=%r)", a_phone, a_profile)
+        # Já transferida? Malu fica em silêncio (Lu cuida) — só audita.
+        if await get_state(a_phone) == STATE_TRANSFERRED:
+            asyncio.create_task(
+                _persist_conversation(a_phone, "[áudio]", "", "transferred")
+            )
+            return
+        await _handle_audio_message(a_phone, a_profile, a_media_id)
+        return
+
+    # 0b) Outras mídias (imagem/vídeo/documento) → handoff pra Lu (como hoje).
+    #     A Malu NÃO lê/extrai — acolhe e passa pra Lu.
     non_text = detect_non_text_message(data)
     if non_text is not None:
         nt_phone, nt_profile, nt_type = non_text
@@ -258,11 +276,28 @@ async def handle_message(data: dict[str, Any]) -> None:
     if parsed is None:
         return
     phone, user_text, profile_name = parsed
+    await _process_text_message(phone, user_text, profile_name)
 
+
+async def _process_text_message(
+    phone: str,
+    user_text: str,
+    profile_name: str | None,
+    from_audio: bool = False,
+) -> None:
+    """Processa uma mensagem de TEXTO (ou um áudio já transcrito).
+
+    Mesmo fluxo de decisão de `handle_message` a partir do passo 1 (/sair →
+    transferido → cliente → intent → IA → briefing). `from_audio=True` quando o
+    texto veio de um áudio transcrito: pede pra Malu confirmar de leve o que
+    entendeu (a transcrição pode ter erros) e pula o debounce (o áudio já é uma
+    fala completa).
+    """
     logger.info(
-        "incoming from %s (profile=%r): %s",
+        "incoming from %s (profile=%r)%s: %s",
         phone,
         profile_name,
+        " [áudio]" if from_audio else "",
         user_text[:120],
     )
 
@@ -369,14 +404,20 @@ async def handle_message(data: dict[str, Any]) -> None:
     # Debounce (Fase 1C): se o cliente está mandando mensagens picadas em
     # rajada, espera juntá-las e responde uma vez só — evita estourar o limite
     # do Groq e a Malu ficar repetitiva. Quem não é o último da rajada desiste.
-    burst = await collect_burst(phone, user_text)
-    if burst is None:
-        return
-    user_text = "\n".join(burst)
-    history = await get_history(phone)  # relê após a espera (estado mais fresco)
+    # Áudio pula o debounce: a transcrição já é uma fala completa.
+    if not from_audio:
+        burst = await collect_burst(phone, user_text)
+        if burst is None:
+            return
+        user_text = "\n".join(burst)
+        history = await get_history(phone)  # relê após a espera (estado mais fresco)
 
     history.append({"role": "user", "content": user_text})
-    customer_context = {"name": customer_name, "is_first_turn": is_first_turn}
+    customer_context = {
+        "name": customer_name,
+        "is_first_turn": is_first_turn,
+        "from_audio": from_audio,
+    }
     reply, model_used = await route_and_ask(history, customer_context=customer_context)
 
     # As DUAS IAs falharam (primária + reserva). Em vez de repetir o erro a cada
@@ -431,9 +472,12 @@ async def handle_message(data: dict[str, Any]) -> None:
     history.append({"role": "assistant", "content": customer_reply})
     await save_history(phone, history)
 
+    # Marca no registro que a entrada veio de áudio transcrito (Lu vê no painel
+    # que foi nota de voz — útil se a transcrição tiver errado algo).
+    incoming_label = f"🎤 {user_text}" if from_audio else user_text
     send_task = asyncio.create_task(send_message(phone, customer_reply))
     audit_task = asyncio.create_task(
-        _persist_conversation(phone, user_text, customer_reply, model_used)
+        _persist_conversation(phone, incoming_label, customer_reply, model_used)
     )
 
     await asyncio.gather(send_task, audit_task, return_exceptions=True)
@@ -496,6 +540,37 @@ async def _handle_ai_failure(
     except Exception:
         logger.exception("notify_luciana_ai_down failed for %s", phone)
     await asyncio.gather(send_task, audit_task, return_exceptions=True)
+
+
+async def _handle_audio_message(
+    phone: str,
+    profile_name: str | None,
+    media_id: str,
+) -> None:
+    """Cliente mandou áudio — transcreve e segue a conversa como texto.
+
+    Se a transcrição estiver desligada, ou falhar (download/Whisper/áudio
+    vazio), cai no handoff de mídia de hoje (acolhe + passa pra Lu) — o cliente
+    nunca fica sem resposta. Sucesso → entra no fluxo de texto com `from_audio`
+    (a Malu confirma de leve o que entendeu).
+    """
+    if not settings.audio_transcription_enabled:
+        await _handle_media_message(phone, profile_name, "audio")
+        return
+
+    transcript: str | None = None
+    try:
+        audio_bytes, mime_type = await download_media(media_id)
+        transcript = await transcribe_audio(audio_bytes, mime_type)
+    except Exception:
+        logger.exception("transcrição de áudio falhou para %s", phone)
+
+    if not transcript or not transcript.strip():
+        logger.info("áudio de %s sem transcrição utilizável — handoff pra Lu", phone)
+        await _handle_media_message(phone, profile_name, "audio")
+        return
+
+    await _process_text_message(phone, transcript.strip(), profile_name, from_audio=True)
 
 
 async def _handle_media_message(

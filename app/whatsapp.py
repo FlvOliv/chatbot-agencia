@@ -121,6 +121,11 @@ async def send_template(to: str, template: str, params: list[str]) -> bool:
         return False
 
 
+# Tipos de áudio (nota de voz e arquivo de áudio). Tratados ANTES do handoff
+# genérico: se a transcrição estiver ligada, a Malu transcreve e segue a
+# conversa; senão (ou em erro), cai no handoff de mídia abaixo.
+AUDIO_MESSAGE_TYPES: frozenset[str] = frozenset({"audio", "voice"})
+
 # Tipos de mensagem WhatsApp que NÃO são texto — a Malu não consome ainda,
 # mas reconhece e responde educadamente em vez de ficar muda.
 # Lista oficial: https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/payload-examples
@@ -236,3 +241,64 @@ def detect_non_text_message(
     except (KeyError, IndexError, AttributeError, TypeError):
         logger.exception("detect_non_text_message failed")
         return None
+
+
+def detect_audio_message(
+    data: dict[str, Any],
+) -> tuple[str, str | None, str] | None:
+    """Detecta mensagem de áudio/voz e devolve `(phone, profile_name, media_id)`.
+
+    O `media_id` é o id da mídia na Graph API — usado por `download_media()`
+    pra baixar os bytes do áudio. Retorna `None` se não for áudio, payload
+    inválido, ou se faltar telefone/id.
+    """
+    try:
+        entry = data.get("entry", [])
+        if not entry:
+            return None
+        changes = entry[0].get("changes", [])
+        if not changes:
+            return None
+        value = changes[0].get("value", {})
+        messages = value.get("messages", [])
+        if not messages:
+            return None
+
+        msg = messages[0]
+        msg_type = msg.get("type")
+        if msg_type not in AUDIO_MESSAGE_TYPES:
+            return None
+
+        media = msg.get(msg_type) or {}
+        media_id = media.get("id")
+        phone, profile_name = _extract_phone_and_profile(value, msg)
+        if not phone or not media_id:
+            return None
+        return phone, profile_name, media_id
+    except (KeyError, IndexError, AttributeError, TypeError):
+        logger.exception("detect_audio_message failed")
+        return None
+
+
+async def download_media(media_id: str) -> tuple[bytes, str]:
+    """Baixa os bytes de uma mídia do WhatsApp (2 passos da Graph API).
+
+    1) `GET /{media_id}` → metadados (URL temporária + `mime_type`)
+    2) `GET <url>` → bytes binários (precisa do MESMO Bearer token)
+
+    Retorna `(bytes, mime_type)`. Lança em erro de rede/HTTP ou se a mídia
+    não tiver URL de download.
+    """
+    meta_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{media_id}"
+    auth = {"Authorization": f"Bearer {settings.wa_token}"}
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        meta_resp = await client.get(meta_url, headers=auth)
+        meta_resp.raise_for_status()
+        meta = meta_resp.json()
+        media_url = meta.get("url")
+        mime_type = meta.get("mime_type") or "audio/ogg"
+        if not media_url:
+            raise RuntimeError(f"mídia {media_id} sem URL de download")
+        bin_resp = await client.get(media_url, headers=auth)
+        bin_resp.raise_for_status()
+        return bin_resp.content, mime_type

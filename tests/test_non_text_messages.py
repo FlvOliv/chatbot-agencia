@@ -7,6 +7,7 @@ import pytest
 from app.whatsapp import (
     MEDIA_HANDOFF_REPLY,
     NON_TEXT_MESSAGE_TYPES,
+    detect_audio_message,
     detect_non_text_message,
     parse_incoming,
 )
@@ -127,6 +128,44 @@ def test_parse_incoming_returns_none_for_non_text() -> None:
     """parse_incoming não deve confundir áudio com texto."""
     assert parse_incoming(_make_payload("audio")) is None
     assert parse_incoming(_make_payload("image")) is None
+
+
+# ---------------------------------------------------------------------------
+# detect_audio_message — devolve o media_id pra baixar o áudio
+# ---------------------------------------------------------------------------
+def test_detects_audio_and_returns_media_id() -> None:
+    result = detect_audio_message(_make_payload("audio"))
+    assert result is not None
+    phone, profile_name, media_id = result
+    assert phone == "5511999998888"
+    assert profile_name == "Cliente Teste"
+    assert media_id == "media_id_123"
+
+
+def test_detect_audio_without_profile() -> None:
+    result = detect_audio_message(_make_payload("audio", with_profile=False))
+    assert result is not None
+    phone, profile_name, media_id = result
+    assert phone == "5511999998888"
+    assert profile_name is None
+    assert media_id == "media_id_123"
+
+
+def test_detect_audio_ignores_text_and_image() -> None:
+    assert detect_audio_message(_make_payload("text")) is None
+    assert detect_audio_message(_make_payload("image")) is None
+
+
+def test_detect_audio_returns_none_without_id() -> None:
+    """Áudio sem id de mídia não dá pra baixar — não detecta."""
+    payload = _make_payload("audio")
+    payload["entry"][0]["changes"][0]["value"]["messages"][0]["audio"] = {}
+    assert detect_audio_message(payload) is None
+
+
+def test_detect_audio_empty_payload() -> None:
+    assert detect_audio_message({}) is None
+    assert detect_audio_message({"entry": []}) is None
 
 
 # ---------------------------------------------------------------------------

@@ -49,6 +49,110 @@ async def test_ai_failure_silences_and_calls_lu(monkeypatch) -> None:
     assert calls["notified"] == ("5511955554444", "João")  # Lu avisada
 
 
+@pytest.mark.asyncio
+async def test_audio_disabled_falls_back_to_handoff(monkeypatch) -> None:
+    """Transcrição DESLIGADA → áudio segue o handoff de hoje (acolhe + Lu)."""
+    calls: dict[str, object] = {}
+
+    async def fake_media(phone, profile, media_type):  # noqa: ANN001
+        calls["handoff"] = (phone, profile, media_type)
+
+    async def fake_process(*args, **kwargs):  # noqa: ANN002, ANN003
+        calls["processed"] = True
+
+    monkeypatch.setattr(main.settings, "audio_transcription_enabled", False)
+    monkeypatch.setattr(main, "_handle_media_message", fake_media)
+    monkeypatch.setattr(main, "_process_text_message", fake_process)
+
+    await main._handle_audio_message("5511955554444", "João", "media_id_1")
+
+    assert calls["handoff"] == ("5511955554444", "João", "audio")
+    assert "processed" not in calls  # nunca chega na IA
+
+
+@pytest.mark.asyncio
+async def test_audio_success_flows_as_text_from_audio(monkeypatch) -> None:
+    """Transcrição OK → entra no fluxo de texto com from_audio=True."""
+    calls: dict[str, object] = {}
+
+    async def fake_download(media_id):  # noqa: ANN001
+        return b"bytes", "audio/ogg"
+
+    async def fake_transcribe(audio_bytes, mime):  # noqa: ANN001
+        return "quero ir pra Bariloche"
+
+    async def fake_process(phone, user_text, profile, from_audio=False):  # noqa: ANN001
+        calls["args"] = (phone, user_text, profile, from_audio)
+
+    async def fake_media(*args):  # noqa: ANN002
+        calls["handoff"] = True
+
+    monkeypatch.setattr(main.settings, "audio_transcription_enabled", True)
+    monkeypatch.setattr(main, "download_media", fake_download)
+    monkeypatch.setattr(main, "transcribe_audio", fake_transcribe)
+    monkeypatch.setattr(main, "_process_text_message", fake_process)
+    monkeypatch.setattr(main, "_handle_media_message", fake_media)
+
+    await main._handle_audio_message("5511955554444", "João", "media_id_1")
+
+    assert calls["args"] == ("5511955554444", "quero ir pra Bariloche", "João", True)
+    assert "handoff" not in calls  # não passa pra Lu — a Malu segue
+
+
+@pytest.mark.asyncio
+async def test_audio_transcribe_error_falls_back_to_handoff(monkeypatch) -> None:
+    """Erro no download/Whisper → handoff seguro pra Lu (cliente nunca no vácuo)."""
+    calls: dict[str, object] = {}
+
+    async def fake_download(media_id):  # noqa: ANN001
+        raise RuntimeError("boom")
+
+    async def fake_process(*args, **kwargs):  # noqa: ANN002, ANN003
+        calls["processed"] = True
+
+    async def fake_media(phone, profile, media_type):  # noqa: ANN001
+        calls["handoff"] = (phone, profile, media_type)
+
+    monkeypatch.setattr(main.settings, "audio_transcription_enabled", True)
+    monkeypatch.setattr(main, "download_media", fake_download)
+    monkeypatch.setattr(main, "_process_text_message", fake_process)
+    monkeypatch.setattr(main, "_handle_media_message", fake_media)
+
+    await main._handle_audio_message("5511955554444", "João", "media_id_1")
+
+    assert calls["handoff"] == ("5511955554444", "João", "audio")
+    assert "processed" not in calls
+
+
+@pytest.mark.asyncio
+async def test_audio_empty_transcript_falls_back_to_handoff(monkeypatch) -> None:
+    """Transcrição vazia/em branco → handoff (não manda mensagem vazia pra IA)."""
+    calls: dict[str, object] = {}
+
+    async def fake_download(media_id):  # noqa: ANN001
+        return b"bytes", "audio/ogg"
+
+    async def fake_transcribe(audio_bytes, mime):  # noqa: ANN001
+        return "   "
+
+    async def fake_process(*args, **kwargs):  # noqa: ANN002, ANN003
+        calls["processed"] = True
+
+    async def fake_media(phone, profile, media_type):  # noqa: ANN001
+        calls["handoff"] = (phone, profile, media_type)
+
+    monkeypatch.setattr(main.settings, "audio_transcription_enabled", True)
+    monkeypatch.setattr(main, "download_media", fake_download)
+    monkeypatch.setattr(main, "transcribe_audio", fake_transcribe)
+    monkeypatch.setattr(main, "_process_text_message", fake_process)
+    monkeypatch.setattr(main, "_handle_media_message", fake_media)
+
+    await main._handle_audio_message("5511955554444", "João", "media_id_1")
+
+    assert calls["handoff"] == ("5511955554444", "João", "audio")
+    assert "processed" not in calls
+
+
 def test_closing_reply_sempre_tem_cta() -> None:
     """Toda finalização leva o CTA: Instagram + grupo VIP (#7)."""
     reply = main._build_closing_reply(None)

@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     # Groq (stand-by — ativar trocando AI_PRIMARY=groq no .env)
     groq_api_key: str = Field(default="", description="API key Groq (console.groq.com)")
     groq_model: str = Field(default="llama-3.3-70b-versatile")
+    # Transcrição de áudio (Whisper da Groq — MESMA chave do chat, mas cota de
+    # ASR separada: um 429 nos modelos de texto normalmente NÃO afeta o Whisper).
+    # Desligada por padrão: ligar só após teste ao vivo. Desligada (ou em erro),
+    # áudio segue o handoff de hoje (acolhe e passa pra Lu).
+    audio_transcription_enabled: bool = Field(default=False)
+    groq_whisper_model: str = Field(default="whisper-large-v3-turbo")
     # Reserva REAL dentro do próprio Groq: modelo menor/rápido com limites
     # separados. Entra quando o modelo principal falha/é limitado (429), ANTES
     # de cair pro Gemini (que no free vive esgotado). "" desliga.

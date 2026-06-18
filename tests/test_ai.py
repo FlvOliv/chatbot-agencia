@@ -231,6 +231,21 @@ def test_build_system_prompt_empty_context_returns_base() -> None:
     assert "Contexto do cliente nesta conversa" not in sp
 
 
+def test_build_system_prompt_from_audio_asks_to_confirm() -> None:
+    """from_audio injeta a orientação de confirmar de leve a transcrição."""
+    sp = ai._build_system_prompt({"from_audio": True})
+    # "transcrito automaticamente" é exclusivo do bloco injetado (o prompt base
+    # já cita "ÁUDIO transcrito" na regra de mídia, então não serve de marcador).
+    assert "transcrito automaticamente" in sp
+    assert "confirme" in sp.lower()
+
+
+def test_build_system_prompt_without_audio_has_no_audio_block() -> None:
+    """Sem from_audio, o bloco injetado de áudio não aparece."""
+    sp = ai._build_system_prompt({"name": "Ana", "is_first_turn": False})
+    assert "transcrito automaticamente" not in sp
+
+
 # ---------------------------------------------------------------------------
 # Helpers — model_name, fallback resolution
 # ---------------------------------------------------------------------------

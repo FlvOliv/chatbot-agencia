@@ -23,6 +23,11 @@ os.environ.setdefault("CRM_API_KEY", "test-api-key-123")
 os.environ.setdefault("CRM_CORS_ORIGINS", "http://localhost:3000")
 os.environ.setdefault("AI_FALLBACK", "none")
 os.environ.setdefault("APP_ENV", "development")
+# Cerebras/Mistral DESLIGADOS por padrão nos testes — isola a suíte do .env
+# real (que agora tem essas chaves). Os testes da cadeia paga ligam cada perna
+# explicitamente via monkeypatch.
+os.environ.setdefault("CEREBRAS_API_KEY", "")
+os.environ.setdefault("MISTRAL_API_KEY", "")
 
 import pytest
 import pytest_asyncio

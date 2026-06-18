@@ -41,6 +41,30 @@ class Settings(BaseSettings):
     # de cair pro Gemini (que no free vive esgotado). "" desliga.
     groq_fallback_model: str = Field(default="llama-3.1-8b-instant")
 
+    # Cerebras (perna GRÁTIS extra — OpenAI-compatible). Entra DEPOIS do Groq e
+    # ANTES do piso pago. NÃO ativar billing/PAYG: usar só o tier grátis. ""
+    # (sem chave) = perna pulada. Não treina com dados → seguro p/ PII (LGPD).
+    cerebras_api_key: str = Field(default="", description="API key Cerebras (cloud.cerebras.ai)")
+    # Modelo grátis da conta da Lu (a conta NÃO tem Llama; confirmar em
+    # GET /v1/models). Alternativa disponível hoje: "zai-glm-4.7".
+    cerebras_model: str = Field(default="gpt-oss-120b")
+    cerebras_base_url: str = Field(default="https://api.cerebras.ai/v1")
+
+    # Mistral = PISO PAGO (OpenAI-compatible). Última rede ANTES do Gemini.
+    # Barato, infra UE/LGPD-friendly, não treina com dados no plano pago.
+    # Quase nunca é tocado (o buffer grátis Groq+Cerebras cobre o dia a dia).
+    mistral_api_key: str = Field(default="", description="API key Mistral (console.mistral.ai)")
+    mistral_base_url: str = Field(default="https://api.mistral.ai/v1")
+    # Piso pago — provider/modelo e liga/desliga. paid_floor_enabled=false
+    # remove o Mistral da cadeia (kill switch). Provider fixo em "mistral" hoje.
+    paid_floor_provider: str = Field(default="mistral")
+    paid_floor_model: str = Field(default="open-mistral-nemo")
+    paid_floor_enabled: bool = Field(default=True)
+    # Trava de orçamento: teto de tokens pagos POR MÊS. Atingido o teto, o
+    # Mistral é PULADO (segue pro Gemini/erro). <=0 = sem teto (não bloqueia);
+    # o liga/desliga real é o paid_floor_enabled.
+    monthly_paid_token_cap: int = Field(default=30_000_000)
+
     # Banco e cache
     database_url: str = Field(
         default="postgresql+asyncpg://malu:malu@localhost:5432/malu"

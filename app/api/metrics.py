@@ -96,13 +96,20 @@ async def get_dashboard_metrics(
 def _classify_provider(model_used: str | None) -> str:
     """Mapeia o campo `model_used` da Conversation pra um provider canônico.
 
-    "gemini-*" -> "gemini", "llama*"/"groq*" -> "groq", resto/None -> "unknown".
+    "gemini-*" -> "gemini", "llama*"/"groq*" -> "groq",
+    "mistral/*" -> "mistral", "cerebras/*" -> "cerebras", resto/None -> "unknown".
+    Cerebras/Mistral chegam com prefixo "provider/" (vide `_attempt_label` em
+    app/ai.py) — por isso são checados ANTES da regra genérica de "llama".
     """
     if not model_used:
         return "unknown"
     name = model_used.lower()
     if name.startswith("gemini"):
         return "gemini"
+    if name.startswith("mistral"):
+        return "mistral"
+    if name.startswith("cerebras"):
+        return "cerebras"
     if name.startswith("llama") or name.startswith("groq"):
         return "groq"
     return "unknown"
@@ -276,7 +283,9 @@ async def get_dashboard_insights(
         rate=rate,
     )
 
-    ai_breakdown: dict[str, int] = {"gemini": 0, "groq": 0, "unknown": 0}
+    ai_breakdown: dict[str, int] = {
+        "gemini": 0, "groq": 0, "cerebras": 0, "mistral": 0, "unknown": 0,
+    }
     for model_used, c in provider_rows:
         bucket = _classify_provider(model_used)
         ai_breakdown[bucket] = ai_breakdown.get(bucket, 0) + c

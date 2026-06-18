@@ -12,11 +12,14 @@ do cliente no system prompt (Sprint 1.3).
 
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 import pytest
+import respx
+from httpx import Response
 
-from app import ai
+from app import ai, budget
 
 
 # ---------------------------------------------------------------------------
@@ -347,3 +350,156 @@ def test_render_transcript_flattens_history() -> None:
     assert "Cliente: oi" in t
     assert "Malu: olá!" in t
     assert "ignorar" not in t
+
+
+# ---------------------------------------------------------------------------
+# PISO PAGO = Mistral — nova cadeia, trava de orçamento e rótulos
+# ---------------------------------------------------------------------------
+def _enable_full_chain(monkeypatch, *, paid: bool = True) -> None:
+    """Liga a cadeia completa: groq/70b → groq/8b → cerebras → mistral → gemini."""
+    monkeypatch.setattr(ai.settings, "ai_primary", "groq")
+    monkeypatch.setattr(ai.settings, "ai_fallback", "gemini")
+    monkeypatch.setattr(ai.settings, "groq_api_key", "gk")
+    monkeypatch.setattr(ai.settings, "groq_model", "groq-70b")
+    monkeypatch.setattr(ai.settings, "groq_fallback_model", "groq-8b")
+    monkeypatch.setattr(ai.settings, "cerebras_api_key", "ck")
+    monkeypatch.setattr(ai.settings, "cerebras_model", "cb-70b")
+    monkeypatch.setattr(ai.settings, "mistral_api_key", "mk")
+    monkeypatch.setattr(ai.settings, "paid_floor_model", "open-mistral-nemo")
+    monkeypatch.setattr(ai.settings, "paid_floor_enabled", paid)
+    monkeypatch.setattr(ai.settings, "gemini_api_key", "gemk")
+
+
+def test_build_attempts_full_chain_order(monkeypatch) -> None:
+    """Cadeia na ordem aprovada quando todas as pernas têm credencial."""
+    _enable_full_chain(monkeypatch)
+    assert ai._build_attempts() == [
+        ("groq", "groq-70b"),
+        ("groq", "groq-8b"),
+        ("cerebras", "cb-70b"),
+        ("mistral", "open-mistral-nemo"),
+        ("gemini", ai.settings.gemini_model),
+    ]
+
+
+def test_build_attempts_omits_paid_floor_when_disabled(monkeypatch) -> None:
+    """PAID_FLOOR_ENABLED=false remove o Mistral, mas mantém o Cerebras grátis."""
+    _enable_full_chain(monkeypatch, paid=False)
+    attempts = ai._build_attempts()
+    assert ("mistral", "open-mistral-nemo") not in attempts
+    assert ("cerebras", "cb-70b") in attempts
+
+
+def test_build_attempts_omits_paid_floor_without_key(monkeypatch) -> None:
+    """Sem MISTRAL_API_KEY o piso pago é pulado mesmo com a flag ligada."""
+    _enable_full_chain(monkeypatch)
+    monkeypatch.setattr(ai.settings, "mistral_api_key", "")
+    assert all(p != "mistral" for p, _ in ai._build_attempts())
+
+
+def test_build_attempts_omits_cerebras_without_key(monkeypatch) -> None:
+    """Sem CEREBRAS_API_KEY a perna grátis extra é pulada."""
+    _enable_full_chain(monkeypatch)
+    monkeypatch.setattr(ai.settings, "cerebras_api_key", "")
+    assert all(p != "cerebras" for p, _ in ai._build_attempts())
+
+
+@pytest.mark.asyncio
+async def test_route_and_ask_reaches_mistral_after_free_legs_fail(monkeypatch) -> None:
+    """Mistral só é chamado depois de groq/70b, groq/8b e cerebras falharem."""
+    _enable_full_chain(monkeypatch)
+
+    ordem: list[str] = []
+
+    async def fake_ask(provider, history, system_prompt, model=None):  # noqa: ANN001, ARG001
+        ordem.append(provider)
+        if provider in ("groq", "cerebras"):
+            raise RuntimeError("perna grátis falhou")
+        return "resposta do mistral"
+
+    with patch.object(ai, "_ask_provider", side_effect=fake_ask):
+        text, model = await ai.route_and_ask([{"role": "user", "content": "oi"}])
+
+    assert text == "resposta do mistral"
+    assert model == "mistral/open-mistral-nemo"  # rótulo prefixado
+    assert ordem == ["groq", "groq", "cerebras", "mistral"]
+
+
+@pytest.mark.asyncio
+async def test_route_and_ask_skips_mistral_when_cap_reached(monkeypatch) -> None:
+    """Teto mensal estourado → Mistral PULADO → segue pro Gemini."""
+    _enable_full_chain(monkeypatch)
+    monkeypatch.setattr(ai.settings, "monthly_paid_token_cap", 100)
+    await budget.record_paid_tokens(200)  # passa do teto
+
+    ordem: list[str] = []
+
+    async def fake_ask(provider, history, system_prompt, model=None):  # noqa: ANN001, ARG001
+        ordem.append(provider)
+        if provider == "mistral":
+            raise AssertionError("Mistral não deveria ser chamado com teto atingido")
+        if provider in ("groq", "cerebras"):
+            raise RuntimeError("perna grátis falhou")
+        return "resposta do gemini"
+
+    with patch.object(ai, "_ask_provider", side_effect=fake_ask):
+        text, model = await ai.route_and_ask([{"role": "user", "content": "oi"}])
+
+    assert text == "resposta do gemini"
+    assert model.startswith("gemini")
+    assert "mistral" not in ordem
+    assert ordem == ["groq", "groq", "cerebras", "gemini"]
+
+
+@pytest.mark.asyncio
+async def test_route_and_ask_labels_cerebras(monkeypatch) -> None:
+    """Cerebras que responde é gravado como 'cerebras/<modelo>' (não vira groq)."""
+    _enable_full_chain(monkeypatch, paid=False)
+    monkeypatch.setattr(ai.settings, "ai_fallback", "none")
+
+    async def fake_ask(provider, history, system_prompt, model=None):  # noqa: ANN001, ARG001
+        if provider == "groq":
+            raise RuntimeError("groq caiu")
+        return "resposta do cerebras"
+
+    with patch.object(ai, "_ask_provider", side_effect=fake_ask):
+        text, model = await ai.route_and_ask([{"role": "user", "content": "oi"}])
+
+    assert text == "resposta do cerebras"
+    assert model == "cerebras/cb-70b"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_mistral_caller_hits_right_url_and_records_tokens(monkeypatch) -> None:
+    """O caller do Mistral bate na base_url/modelo certos e contabiliza tokens."""
+    monkeypatch.setattr(ai.settings, "mistral_api_key", "mk-secret")
+    monkeypatch.setattr(ai.settings, "mistral_base_url", "https://api.mistral.ai/v1")
+    monkeypatch.setattr(ai.settings, "paid_floor_model", "open-mistral-nemo")
+
+    route = respx.post("https://api.mistral.ai/v1/chat/completions").mock(
+        return_value=Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "olá do mistral"}}],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                },
+            },
+        )
+    )
+
+    text = await ai._ask_malu_mistral(
+        [{"role": "user", "content": "oi"}], "system prompt da malu"
+    )
+
+    assert text == "olá do mistral"
+    assert route.called
+    sent = route.calls.last.request
+    assert sent.headers["authorization"] == "Bearer mk-secret"
+    body = json.loads(sent.content)
+    assert body["model"] == "open-mistral-nemo"
+    # tokens do piso pago entram na trava de orçamento
+    assert await budget.paid_tokens_used() == 15

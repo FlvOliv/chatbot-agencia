@@ -23,8 +23,10 @@ from pathlib import Path
 from typing import Any
 
 import google.generativeai as genai
+import httpx
 from groq import AsyncGroq
 
+from app import budget
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -244,6 +246,101 @@ async def _ask_malu_groq(
 
 
 # ---------------------------------------------------------------------------
+# Providers OpenAI-compatible (Cerebras = perna grátis, Mistral = piso pago)
+# ---------------------------------------------------------------------------
+async def _ask_openai_compat(
+    provider: str,
+    base_url: str,
+    api_key: str,
+    model: str,
+    history: list[dict],
+    system_prompt: str,
+    json_mode: bool = False,
+) -> tuple[str, int]:
+    """Chama um endpoint OpenAI-compatible (Cerebras/Mistral) via httpx.
+
+    Reusa o `httpx` que já é dependência — não precisa de SDK novo. Retorna
+    `(texto, total_tokens)`; o total alimenta a trava de orçamento do piso pago.
+    """
+    if not api_key:
+        raise RuntimeError(f"{provider.upper()}_API_KEY não configurada")
+
+    messages = _build_openai_messages(history, system_prompt)
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": _MAX_TOKENS,
+        # Mesma régua do Groq: 0.2 no chat (aderente às regras), 0.0 na extração.
+        "temperature": 0.0 if json_mode else 0.2,
+    }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            f"{base_url.rstrip('/')}/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json=payload,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    usage = data.get("usage") or {}
+    total = int(usage.get("total_tokens") or 0)
+    kind = "extract" if json_mode else "chat"
+    logger.info(
+        "[ai.usage] %s/%s kind=%s prompt=%s completion=%s total=%s",
+        provider, model, kind,
+        usage.get("prompt_tokens"), usage.get("completion_tokens"), total,
+    )
+
+    choices = data.get("choices") or []
+    if not choices:
+        return "", total
+    content = (choices[0].get("message") or {}).get("content") or ""
+    return content.strip(), total
+
+
+async def _ask_malu_cerebras(
+    history: list[dict],
+    system_prompt: str,
+    json_mode: bool = False,
+    model: str | None = None,
+) -> str:
+    """Perna GRÁTIS extra (Cerebras). Não treina com dados → seguro p/ PII."""
+    text, _ = await _ask_openai_compat(
+        "cerebras",
+        settings.cerebras_base_url,
+        settings.cerebras_api_key,
+        model or settings.cerebras_model,
+        history,
+        system_prompt,
+        json_mode,
+    )
+    return text
+
+
+async def _ask_malu_mistral(
+    history: list[dict],
+    system_prompt: str,
+    json_mode: bool = False,
+    model: str | None = None,
+) -> str:
+    """PISO PAGO (Mistral). Contabiliza os tokens gastos pra trava de orçamento."""
+    text, total = await _ask_openai_compat(
+        "mistral",
+        settings.mistral_base_url,
+        settings.mistral_api_key,
+        model or settings.paid_floor_model,
+        history,
+        system_prompt,
+        json_mode,
+    )
+    await budget.record_paid_tokens(total)
+    return text
+
+
+# ---------------------------------------------------------------------------
 # Dispatcher público
 # ---------------------------------------------------------------------------
 def _model_name(provider: str) -> str:
@@ -252,6 +349,10 @@ def _model_name(provider: str) -> str:
         return settings.gemini_model
     if provider == "groq":
         return settings.groq_model
+    if provider == "cerebras":
+        return settings.cerebras_model
+    if provider == "mistral":
+        return settings.paid_floor_model
     return provider
 
 
@@ -266,6 +367,10 @@ def _provider_available(provider: str) -> bool:
         return bool(settings.gemini_api_key)
     if provider == "groq":
         return bool(settings.groq_api_key)
+    if provider == "cerebras":
+        return bool(settings.cerebras_api_key)
+    if provider == "mistral":
+        return bool(settings.mistral_api_key)
     return False
 
 
@@ -281,9 +386,16 @@ def _groq_models() -> list[str]:
 def _build_attempts() -> list[tuple[str, str]]:
     """Ordem de tentativas (provider, modelo) que `route_and_ask` percorre.
 
-    Inclui um 2º modelo do Groq como reserva REAL — o Gemini grátis vive
-    esgotado (429) e não protege sozinho. Ex. típico (groq+gemini):
-        groq/llama-3.3-70b → groq/llama-3.1-8b → gemini.
+    Cadeia em produção (AI_PRIMARY=groq / AI_FALLBACK=gemini):
+        groq/70b → groq/8b → cerebras (grátis) → mistral (PISO PAGO) → gemini.
+    Cada perna só entra se tiver credencial (chave faltando = perna pulada,
+    nunca quebra a fila). O piso pago entra só com PAID_FLOOR_ENABLED=true.
+
+    Racional LGPD da ordem: o briefing carrega PII (nome, datas, às vezes
+    passaporte/saúde). Groq, Cerebras e Mistral NÃO treinam com os dados —
+    então a PII passa por eles ANTES do Gemini grátis (que treina), que fica
+    como último recurso. Custo desprezível: o buffer grátis Groq+Cerebras
+    (~1,6M tokens/dia) cobre o dia a dia, então o piso pago quase nunca é tocado.
     """
     attempts: list[tuple[str, str]] = []
 
@@ -299,10 +411,32 @@ def _build_attempts() -> list[tuple[str, str]]:
 
     primary = settings.ai_primary
     add_provider(primary)
+
+    # Perna GRÁTIS extra: Cerebras entra depois do primário e antes do pago.
+    if _provider_available("cerebras"):
+        add_provider("cerebras")
+
+    # PISO PAGO: Mistral só com a flag ligada E chave presente.
+    if settings.paid_floor_enabled and _provider_available("mistral"):
+        add_provider("mistral")
+
     fallback = _resolve_fallback(primary)
     if fallback:
         add_provider(fallback)
     return attempts
+
+
+def _attempt_label(provider: str, model: str) -> str:
+    """Rótulo gravado em `Conversation.model_used` quando um attempt responde.
+
+    Groq/Gemini mantêm o nome cru do modelo (compatível com o classificador e
+    a telemetria já existentes). Cerebras/Mistral ganham prefixo `provider/` —
+    senão o modelo Llama do Cerebras seria contado como Groq e o do Mistral
+    cairia em "desconhecido" no painel.
+    """
+    if provider in ("groq", "gemini"):
+        return model
+    return f"{provider}/{model}"
 
 
 def _resolve_fallback(primary: str) -> str | None:
@@ -338,6 +472,10 @@ async def _ask_provider(
         return await _ask_malu_gemini(history, system_prompt, json_mode)
     if provider == "groq":
         return await _ask_malu_groq(history, system_prompt, json_mode, model=model)
+    if provider == "cerebras":
+        return await _ask_malu_cerebras(history, system_prompt, json_mode, model=model)
+    if provider == "mistral":
+        return await _ask_malu_mistral(history, system_prompt, json_mode, model=model)
     raise ValueError(f"provider não suportado: {provider}")
 
 
@@ -373,15 +511,17 @@ async def route_and_ask(
     history: list[dict],
     customer_context: dict[str, Any] | None = None,
 ) -> tuple[str, str]:
-    """Router principal — tenta o provider ativo e, em falha, o de reserva.
+    """Router principal — percorre a cadeia de IA e para no 1º que responder.
 
-    A ordem (vide `_build_attempts`): modelo principal → 2º modelo do Groq
-    (reserva real) → provider de AI_FALLBACK. Tenta cada um; no primeiro que
-    responder, retorna. Só devolve "error" se TODOS falharem.
+    Ordem (vide `_build_attempts`): groq/70b → groq/8b → cerebras (grátis) →
+    mistral (PISO PAGO) → gemini. Antes de chamar o Mistral, checa a trava de
+    orçamento mensal: teto atingido → PULA o Mistral e segue. Só devolve
+    "error" se TODAS as pernas falharem.
 
     Returns:
         (resposta, modelo_usado)
-        modelo_usado ∈ {nome do modelo que respondeu, "error"}.
+        modelo_usado ∈ {rótulo do modelo que respondeu (ex.: "mistral/<modelo>"),
+        "error"}.
     """
     if not history:
         raise ValueError("history vazio")
@@ -390,6 +530,14 @@ async def route_and_ask(
     attempts = _build_attempts()
 
     for i, (provider, model) in enumerate(attempts):
+        # PISO PAGO: antes de gastar no Mistral, respeita o teto mensal.
+        if provider == "mistral" and await budget.paid_floor_cap_reached():
+            logger.warning(
+                "piso pago (mistral) PULADO: teto mensal de tokens atingido "
+                "(cap=%s) — seguindo pra próxima perna",
+                settings.monthly_paid_token_cap,
+            )
+            continue
         try:
             text = await _ask_provider(provider, history, system_prompt, model=model)
             if text:
@@ -399,7 +547,7 @@ async def route_and_ask(
                         provider,
                         model,
                     )
-                return text, model
+                return text, _attempt_label(provider, model)
             logger.warning("%s/%s retornou resposta vazia", provider, model)
         except Exception:
             logger.exception("%s/%s call failed", provider, model)

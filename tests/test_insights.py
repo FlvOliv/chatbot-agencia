@@ -146,6 +146,8 @@ def test_insights_empty_db_returns_200_with_correct_structure(
     assert data["ai_provider_breakdown"] == {
         "gemini": 0,
         "groq": 0,
+        "cerebras": 0,
+        "mistral": 0,
         "unknown": 0,
     }
 
@@ -274,6 +276,8 @@ def test_ai_provider_breakdown_maps_model_prefixes(
             ("gemini-2.5-flash", 198),
             ("llama-3.3-70b-versatile", 12),
             ("groq-mixtral-8x7b", 3),
+            ("mistral/open-mistral-nemo", 7),  # piso pago
+            ("cerebras/llama-3.3-70b", 5),  # perna grátis (Llama, NÃO vira groq)
             (None, 4),
             ("anthropic-claude", 2),  # cai em "unknown"
         ],
@@ -285,6 +289,8 @@ def test_ai_provider_breakdown_maps_model_prefixes(
 
     assert ai["gemini"] == 198
     assert ai["groq"] == 12 + 3  # llama-* e groq-* somam
+    assert ai["mistral"] == 7
+    assert ai["cerebras"] == 5  # prefixo "cerebras/" tem prioridade sobre "llama"
     assert ai["unknown"] == 4 + 2  # None + anthropic-*
 
 

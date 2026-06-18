@@ -152,6 +152,59 @@ def test_routes_are_registered(client: TestClient) -> None:
     assert "/api/config" in paths
 
 
+def test_conversation_detail_includes_audio_url(monkeypatch, auth_headers) -> None:
+    """Mensagem de voz (media_path) → a rota devolve audio_url (link assinado)."""
+    import uuid as _uuid
+    from datetime import datetime, timezone
+
+    from app.models import Conversation
+
+    conv = Conversation(
+        id=str(_uuid.uuid4()),
+        phone="5511955554444",
+        role="user",
+        content="🎤 quero ir pra bariloche",
+        model_used=None,
+        media_path="5511955554444/a.ogg",
+        created_at=datetime.now(timezone.utc),
+    )
+
+    class _Result:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return [conv]
+
+        def scalar_one_or_none(self):
+            return None  # sem cliente cadastrado
+
+    class _Session:
+        async def execute(self, *a, **k):  # noqa: ANN002, ANN003, ARG002
+            return _Result()
+
+        async def commit(self):
+            pass
+
+    async def _session_override():
+        yield _Session()
+
+    async def fake_signed(path):  # noqa: ANN001
+        return f"https://signed.example/{path}"
+
+    monkeypatch.setattr("app.api.conversations.signed_url", fake_signed)
+    app.dependency_overrides[get_session] = _session_override
+    try:
+        c = TestClient(app)
+        r = c.get("/api/conversations/5511955554444", headers=auth_headers)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    msg = r.json()["messages"][0]
+    assert msg["audio_url"] == "https://signed.example/5511955554444/a.ogg"
+
+
 def test_cors_headers_present(client: TestClient) -> None:
     """Preflight OPTIONS deve retornar headers CORS pro frontend Next.js."""
     r = client.options(

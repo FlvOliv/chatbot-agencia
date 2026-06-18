@@ -235,6 +235,14 @@ export function ConversaView({
                       </div>
                     ) : null}
                     {m.content}
+                    {m.audio_url ? (
+                      <audio
+                        controls
+                        preload="none"
+                        src={m.audio_url}
+                        className="mt-1 w-full max-w-[260px]"
+                      />
+                    ) : null}
                     <div
                       className={cn(
                         "mt-0.5 text-[10px]",

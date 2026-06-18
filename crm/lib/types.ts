@@ -63,6 +63,7 @@ export interface MessageOut {
   role: "user" | "assistant";
   content: string;
   model_used: string | null;
+  audio_url: string | null;
   created_at: string;
 }
 

@@ -12,6 +12,7 @@ from app.api.auth import require_api_key
 from app.api.schemas import ConversationDetail, ConversationSummary, MessageOut
 from app.database import get_session
 from app.models import Cliente, Conversation, Lead
+from app.storage import signed_url
 from app.session import (
     STATE_TRANSFERRED,
     clear_state,
@@ -121,10 +122,18 @@ async def get_conversation(
     cliente_row = await db.execute(select(Cliente).where(Cliente.phone == phone))
     cliente = cliente_row.scalar_one_or_none()
 
+    # Mensagens de voz têm media_path → gera o link assinado pro player do painel.
+    out: list[MessageOut] = []
+    for m in messages:
+        mo = MessageOut.model_validate(m)
+        if m.media_path:
+            mo.audio_url = await signed_url(m.media_path)
+        out.append(mo)
+
     return ConversationDetail(
         phone=phone,
         customer_name=cliente.display_name if cliente else None,
-        messages=[MessageOut.model_validate(m) for m in messages],
+        messages=out,
     )
 
 

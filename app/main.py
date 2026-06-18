@@ -69,6 +69,7 @@ from app.session import (
     save_history,
     set_state,
 )
+from app.storage import upload_audio
 from app.transcribe import transcribe_audio
 from app.whatsapp import (
     MEDIA_HANDOFF_REPLY,
@@ -284,6 +285,7 @@ async def _process_text_message(
     user_text: str,
     profile_name: str | None,
     from_audio: bool = False,
+    media_path: str | None = None,
 ) -> None:
     """Processa uma mensagem de TEXTO (ou um áudio já transcrito).
 
@@ -291,7 +293,8 @@ async def _process_text_message(
     transferido → cliente → intent → IA → briefing). `from_audio=True` quando o
     texto veio de um áudio transcrito: pede pra Malu confirmar de leve o que
     entendeu (a transcrição pode ter erros) e pula o debounce (o áudio já é uma
-    fala completa).
+    fala completa). `media_path` = caminho do áudio no Storage (pra Lu ouvir no
+    painel), gravado na mensagem do cliente.
     """
     logger.info(
         "incoming from %s (profile=%r)%s: %s",
@@ -477,7 +480,9 @@ async def _process_text_message(
     incoming_label = f"🎤 {user_text}" if from_audio else user_text
     send_task = asyncio.create_task(send_message(phone, customer_reply))
     audit_task = asyncio.create_task(
-        _persist_conversation(phone, incoming_label, customer_reply, model_used)
+        _persist_conversation(
+            phone, incoming_label, customer_reply, model_used, user_media_path=media_path
+        )
     )
 
     await asyncio.gather(send_task, audit_task, return_exceptions=True)
@@ -559,24 +564,31 @@ async def _handle_audio_message(
         return
 
     transcript: str | None = None
+    media_path: str | None = None
     try:
         audio_bytes, mime_type = await download_media(media_id)
+        # Guarda o áudio pra Lu ouvir no painel (best-effort: se o Storage não
+        # estiver configurado ou falhar, volta None e a transcrição segue).
+        media_path = await upload_audio(phone, audio_bytes, mime_type)
         transcript = await transcribe_audio(audio_bytes, mime_type)
     except Exception:
         logger.exception("transcrição de áudio falhou para %s", phone)
 
     if not transcript or not transcript.strip():
         logger.info("áudio de %s sem transcrição utilizável — handoff pra Lu", phone)
-        await _handle_media_message(phone, profile_name, "audio")
+        await _handle_media_message(phone, profile_name, "audio", media_path=media_path)
         return
 
-    await _process_text_message(phone, transcript.strip(), profile_name, from_audio=True)
+    await _process_text_message(
+        phone, transcript.strip(), profile_name, from_audio=True, media_path=media_path
+    )
 
 
 async def _handle_media_message(
     phone: str,
     profile_name: str | None,
     media_type: str,
+    media_path: str | None = None,
 ) -> None:
     """Cliente mandou mídia/documento — a Malu não lê: acolhe e passa pra Lu.
 
@@ -597,7 +609,11 @@ async def _handle_media_message(
     send_task = asyncio.create_task(send_message(phone, MEDIA_HANDOFF_REPLY))
     audit_task = asyncio.create_task(
         _persist_conversation(
-            phone, f"[mídia: {media_type}]", MEDIA_HANDOFF_REPLY, f"media:{media_type}"
+            phone,
+            f"[mídia: {media_type}]",
+            MEDIA_HANDOFF_REPLY,
+            f"media:{media_type}",
+            user_media_path=media_path,
         )
     )
     try:
@@ -697,12 +713,16 @@ async def _persist_conversation(
     user_text: str,
     reply: str,
     model_used: str,
+    user_media_path: str | None = None,
 ) -> None:
     """Grava as duas mensagens (user + assistant) na tabela conversations.
 
     Timestamps DISTINTOS (Malu 10ms depois do cliente) garantem a ordem no
     painel — senão as duas empatam no mesmo instante e a thread embaralha
     (resposta da Malu aparecendo antes da pergunta do cliente).
+
+    `user_media_path` = caminho do áudio do cliente no Storage (só quando a
+    mensagem veio de uma nota de voz), gravado na linha do cliente.
     """
     try:
         async with SessionLocal() as db:
@@ -710,7 +730,11 @@ async def _persist_conversation(
             db.add_all(
                 [
                     Conversation(
-                        phone=phone, role="user", content=user_text, created_at=now
+                        phone=phone,
+                        role="user",
+                        content=user_text,
+                        media_path=user_media_path,
+                        created_at=now,
                     ),
                     Conversation(
                         phone=phone,

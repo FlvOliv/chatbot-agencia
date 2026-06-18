@@ -77,6 +77,17 @@ class Settings(BaseSettings):
     )
     redis_url: str = Field(default="redis://localhost:6379/0")
 
+    # Supabase Storage — guarda os áudios dos clientes pra Lu ouvir no painel.
+    # Bucket PRIVADO + URL ASSINADA (temporária) → LGPD-friendly. Sem URL/chave,
+    # o upload é pulado (a transcrição segue funcionando, só não guarda o áudio).
+    supabase_url: str = Field(default="", description="https://<projeto>.supabase.co")
+    supabase_service_key: str = Field(
+        default="", description="service_role key (upload no Storage; NUNCA expor no front)"
+    )
+    supabase_audio_bucket: str = Field(default="audios")
+    # Validade do link assinado do áudio no painel (segundos). 3600 = 1h.
+    audio_url_ttl: int = Field(default=3600)
+
     # Negócio
     luciana_phone: str = Field(..., description="Telefone Lu (E.164 sem +)")
     business_hours_start: int = Field(default=9)

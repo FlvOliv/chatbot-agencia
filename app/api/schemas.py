@@ -100,6 +100,9 @@ class MessageOut(BaseModel):
     role: str
     content: str
     model_used: str | None = None
+    # Link assinado temporário pro áudio do cliente (None = mensagem de texto).
+    # Gerado na rota a partir de Conversation.media_path; o painel mostra o player.
+    audio_url: str | None = None
     created_at: datetime
 
 

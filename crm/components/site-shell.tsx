@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Users, MessageCircle, Settings, Circle } from "lucide-react";
+import { Home, Users, MessageCircle, Settings, Circle, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { signOut } from "@/app/login/actions";
 import type { HealthStatus } from "@/lib/types";
 
 const NAV = [
@@ -21,15 +22,20 @@ function isActive(pathname: string, href: string): boolean {
 export function SiteShell({
   children,
   status,
+  userName,
 }: {
   children: React.ReactNode;
   status: HealthStatus;
+  userName?: string | null;
 }) {
   const pathname = usePathname();
 
+  // Tela de login: sem navegação/cabeçalho (ela tem layout próprio).
+  if (pathname === "/login") return <>{children}</>;
+
   return (
     <div className="min-h-dvh flex flex-col bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
-      <Header status={status} />
+      <Header status={status} userName={userName} />
 
       <div className="flex flex-1 w-full">
         <aside className="hidden lg:flex w-[60px] shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex-col items-center py-4 gap-1 sticky top-14 self-start h-[calc(100dvh-3.5rem)]">
@@ -71,7 +77,13 @@ export function SiteShell({
   );
 }
 
-function Header({ status }: { status: HealthStatus }) {
+function Header({
+  status,
+  userName,
+}: {
+  status: HealthStatus;
+  userName?: string | null;
+}) {
   const statusColor =
     status === "ok"
       ? "fill-emerald-500 text-emerald-500"
@@ -91,7 +103,7 @@ function Header({ status }: { status: HealthStatus }) {
           </span>
         </Link>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <span className="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400">
             <Circle className={cn("size-2.5", statusColor)} strokeWidth={0} />
             <span>{statusLabel}</span>
@@ -103,6 +115,23 @@ function Header({ status }: { status: HealthStatus }) {
           >
             <Settings className="size-5" />
           </Link>
+          {userName ? (
+            <div className="flex items-center gap-1 border-l border-zinc-200 pl-1.5 dark:border-zinc-800">
+              <span className="hidden text-xs text-zinc-600 sm:inline dark:text-zinc-400">
+                {userName}
+              </span>
+              <form action={signOut}>
+                <button
+                  type="submit"
+                  aria-label="Sair"
+                  title="Sair"
+                  className="size-11 grid place-items-center rounded-md text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
+                >
+                  <LogOut className="size-5" />
+                </button>
+              </form>
+            </div>
+          ) : null}
         </div>
       </div>
     </header>

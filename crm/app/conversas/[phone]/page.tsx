@@ -58,7 +58,6 @@ export default async function ConversaDetailPage({
             conv={conv}
             initialPaused={state.bot_paused}
             lead={lead}
-            phone={decoded}
           />
         )}
       </div>

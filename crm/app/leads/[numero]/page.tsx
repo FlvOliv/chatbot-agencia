@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Phone } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import { getConversation, getLead } from "@/lib/api";
+import { getConversation, getLeadByNumero } from "@/lib/api";
 import { TempBadge } from "@/components/temp-badge";
 import { MessageBubble } from "@/components/leads/message-bubble";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,24 +10,22 @@ import { formatPhone } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-type LeadDetailParams = Promise<{ phone: string }>;
+type LeadDetailParams = Promise<{ numero: string }>;
 
 export default async function LeadDetailPage({
   params,
 }: {
   params: LeadDetailParams;
 }) {
-  const { phone } = await params;
-  const decoded = decodeURIComponent(phone);
+  const { numero } = await params;
 
-  const [detail, conversation] = await Promise.all([
-    getLead(decoded),
-    getConversation(decoded, 100),
-  ]);
-
+  // Abre a cotação pelo número (#1001...). Um mesmo cliente pode ter várias.
+  const detail = await getLeadByNumero(numero);
   if (!detail) notFound();
 
   const { lead } = detail;
+  const conversation = await getConversation(lead.phone, 100);
+
   const display =
     lead.name?.trim() ||
     detail.cliente?.profile_name?.trim() ||
@@ -80,7 +78,7 @@ export default async function LeadDetailPage({
             </div>
           ) : (
             <p className="text-sm text-zinc-500">
-              A Malu ainda não fechou o briefing deste lead.
+              A Malu ainda não fechou o briefing desta cotação.
             </p>
           )}
         </CardContent>

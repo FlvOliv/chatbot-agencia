@@ -11,9 +11,6 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-
 from app.config import settings
 from app.models import Lead
 from app.whatsapp import send_message
@@ -456,18 +453,14 @@ async def save_lead(
     travel_type: str | None = None,
     raw_data: dict | None = None,
 ) -> Lead:
-    """UPSERT do lead por phone.
+    """Cria um lead NOVO (uma cotação).
 
-    Colunas estruturadas (`name`/`destination`/`travel_type`) e `raw_data` só
-    são gravadas quando vêm preenchidas — assim uma extração parcial nunca
-    apaga um dado que já existia de um briefing anterior.
+    Cada coleta concluída vira uma cotação separada, com seu próprio `numero` —
+    NÃO sobrescreve cotações anteriores do mesmo cliente (a mesma pessoa pode
+    pedir várias). Colunas opcionais só entram quando vêm preenchidas.
     """
-    insert_values: dict[str, object] = {
+    values: dict[str, object] = {
         "phone": phone,
-        "briefing_md": briefing_md,
-        "lead_temp": lead_temp,
-    }
-    update_values: dict[str, object] = {
         "briefing_md": briefing_md,
         "lead_temp": lead_temp,
     }
@@ -478,19 +471,12 @@ async def save_lead(
         "raw_data": raw_data,
     }
     for col, val in optional.items():
-        if val:  # ignora None / "" / {} → não sobrescreve
-            insert_values[col] = val
-            update_values[col] = val
+        if val:  # ignora None / "" / {}
+            values[col] = val
 
-    stmt = (
-        pg_insert(Lead)
-        .values(**insert_values)
-        .on_conflict_do_update(index_elements=["phone"], set_=update_values)
-        .returning(Lead.id)
-    )
-    result = await db.execute(stmt)
-    lead_id = result.scalar_one()
+    lead = Lead(**values)
+    db.add(lead)
     await db.flush()
-
-    fetched = await db.execute(select(Lead).where(Lead.id == lead_id))
-    return fetched.scalar_one()
+    # Recarrega pra trazer os valores gerados no banco (numero, id, created_at).
+    await db.refresh(lead)
+    return lead

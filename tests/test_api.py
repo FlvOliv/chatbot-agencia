@@ -145,6 +145,7 @@ def test_routes_are_registered(client: TestClient) -> None:
     paths = r.json()["paths"]
     assert "/api/leads" in paths
     assert "/api/leads/{phone}" in paths
+    assert "/api/leads/by-numero/{numero}" in paths
     assert "/api/conversations" in paths
     assert "/api/conversations/{phone}" in paths
     assert "/api/reservas" in paths
@@ -203,6 +204,71 @@ def test_conversation_detail_includes_audio_url(monkeypatch, auth_headers) -> No
     assert r.status_code == 200
     msg = r.json()["messages"][0]
     assert msg["audio_url"] == "https://signed.example/5511955554444/a.ogg"
+
+
+def test_get_lead_by_numero_returns_specific_quotation(monkeypatch, auth_headers) -> None:
+    """A rota /api/leads/by-numero/{numero} abre uma cotação específica."""
+    import uuid as _uuid
+    from datetime import datetime, timezone
+
+    from app.models import Lead
+
+    now = datetime.now(timezone.utc)
+    lead = Lead(
+        id=str(_uuid.uuid4()),
+        numero=1042,
+        phone="5511955554444",
+        name="Ana",
+        destination="Rio de Janeiro",
+        travel_type=None,
+        lead_temp="quente",
+        briefing_md="cotação X",
+        raw_data={},
+        created_at=now,
+        updated_at=now,
+    )
+
+    class _Result:
+        def __init__(self, one_or_none=None, one=0):
+            self._oon = one_or_none
+            self._one = one
+
+        def scalar_one_or_none(self):
+            return self._oon
+
+        def scalar_one(self):
+            return self._one
+
+    class _Session:
+        def __init__(self):
+            self.calls = 0
+
+        async def execute(self, *a, **k):  # noqa: ANN002, ANN003, ARG002
+            self.calls += 1
+            if self.calls == 1:
+                return _Result(one_or_none=lead)  # busca do lead pelo numero
+            if self.calls == 2:
+                return _Result(one_or_none=None)  # cliente
+            return _Result(one=3)  # contagem de mensagens
+
+        async def commit(self):
+            pass
+
+    async def _session_override():
+        yield _Session()
+
+    app.dependency_overrides[get_session] = _session_override
+    try:
+        c = TestClient(app)
+        r = c.get("/api/leads/by-numero/1042", headers=auth_headers)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["lead"]["numero"] == 1042
+    assert body["lead"]["phone"] == "5511955554444"
+    assert body["conversation_count"] == 3
 
 
 def test_cors_headers_present(client: TestClient) -> None:

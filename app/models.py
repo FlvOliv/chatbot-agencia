@@ -26,7 +26,12 @@ from app.database import Base
 
 
 class Lead(Base):
-    """Lead capturado pela Malu — uma linha por número de WhatsApp."""
+    """Lead/cotação capturado pela Malu — uma linha POR COTAÇÃO.
+
+    O mesmo cliente (phone) pode ter várias cotações (uma viagem diferente cada
+    vez). A identidade de uma cotação é o `numero` (#1001...), NÃO o phone — por
+    isso phone não é único.
+    """
 
     __tablename__ = "leads"
     __table_args__ = (
@@ -50,7 +55,8 @@ class Lead(Base):
         unique=True,
         nullable=False,
     )
-    phone: Mapped[str] = mapped_column(Text, nullable=False, unique=True, index=True)
+    # NÃO é único: o mesmo cliente pode ter várias cotações. Só índice (busca).
+    phone: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     name: Mapped[str | None] = mapped_column(Text, nullable=True)
     destination: Mapped[str | None] = mapped_column(Text, nullable=True)
     travel_type: Mapped[str | None] = mapped_column(Text, nullable=True)

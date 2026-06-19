@@ -80,9 +80,12 @@ async def list_conversations(
         # Nome do cliente
         cliente_row = await db.execute(select(Cliente).where(Cliente.phone == phone))
         cliente = cliente_row.scalar_one_or_none()
-        # Temperatura do lead (se houver)
+        # Temperatura do lead (se houver) — a cotação MAIS RECENTE do cliente
         lead_row = await db.execute(
-            select(Lead.lead_temp).where(Lead.phone == phone).limit(1)
+            select(Lead.lead_temp)
+            .where(Lead.phone == phone)
+            .order_by(Lead.created_at.desc())
+            .limit(1)
         )
         lead_temp = lead_row.scalar_one_or_none()
         # Estado do bot: "aguardando você" quando a Lu assumiu (transferred)

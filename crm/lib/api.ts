@@ -133,6 +133,21 @@ export async function getLead(phone: string): Promise<LeadDetail | null> {
   }
 }
 
+// Detalhe de UMA cotação específica pelo número (#1001...). O mesmo cliente
+// pode ter várias cotações, então o detalhe é aberto pelo número, não telefone.
+export async function getLeadByNumero(
+  numero: string | number,
+): Promise<LeadDetail | null> {
+  try {
+    return await apiFetch<LeadDetail>(
+      `/leads/by-numero/${encodeURIComponent(String(numero))}`,
+    );
+  } catch (err) {
+    console.error("[api] getLeadByNumero", err);
+    return null;
+  }
+}
+
 export async function getConversation(
   phone: string,
   limit = 100,

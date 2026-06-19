@@ -11,7 +11,7 @@ distribuição horária, taxa de conversão e breakdown de IA).
 
 - `/` — dashboard com KPIs, conversas 7d, temperatura, destinos e conversão
 - `/leads` — lista filtrável por temperatura e busca
-- `/leads/[phone]` — detalhe de um lead + briefing + histórico
+- `/leads/[numero]` — detalhe de uma cotação (pelo número) + briefing + histórico
 - `/configuracoes` — visualização das envs (sem edição)
 
 ## Rodar local

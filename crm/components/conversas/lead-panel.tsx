@@ -35,10 +35,8 @@ function datas(raw: Record<string, unknown>): string | null {
 
 export function LeadPanel({
   lead: detail,
-  phone,
 }: {
   lead: LeadDetail | null;
-  phone: string;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -117,7 +115,7 @@ export function LeadPanel({
 
       <div className="mt-auto space-y-2 border-t border-zinc-100 px-5 py-4 dark:border-zinc-800">
         <Link
-          href={`/leads/${encodeURIComponent(phone)}`}
+          href={`/leads/${lead.numero}`}
           className="flex items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
         >
           <ExternalLink className="size-4" /> Ver lead completo

@@ -60,7 +60,7 @@ export default async function LeadsPage({
             return (
               <Link
                 key={lead.id}
-                href={`/leads/${encodeURIComponent(lead.phone)}`}
+                href={`/leads/${lead.numero}`}
                 className="group flex items-center gap-3 rounded-lg border border-zinc-200 bg-white p-3 transition-colors active:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 min-h-11"
               >
                 <div className="min-w-0 flex-1">
@@ -111,7 +111,7 @@ export default async function LeadsPage({
                     </td>
                     <td className="px-4 py-3">
                       <Link
-                        href={`/leads/${encodeURIComponent(lead.phone)}`}
+                        href={`/leads/${lead.numero}`}
                         className="font-medium hover:underline"
                       >
                         {lead.name?.trim() || "—"}
@@ -131,7 +131,7 @@ export default async function LeadsPage({
                     </td>
                     <td className="px-2">
                       <Link
-                        href={`/leads/${encodeURIComponent(lead.phone)}`}
+                        href={`/leads/${lead.numero}`}
                         aria-label="Abrir lead"
                         className="inline-flex size-8 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
                       >

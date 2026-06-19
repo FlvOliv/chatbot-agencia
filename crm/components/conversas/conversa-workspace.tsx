@@ -10,12 +10,10 @@ export function ConversaWorkspace({
   conv,
   initialPaused,
   lead,
-  phone,
 }: {
   conv: ConversationDetail;
   initialPaused: boolean;
   lead: LeadDetail | null;
-  phone: string;
 }) {
   const [showLead, setShowLead] = useState(true);
 
@@ -48,7 +46,7 @@ export function ConversaWorkspace({
       </div>
       {showLead ? (
         <aside className="hidden w-[300px] shrink-0 flex-col overflow-y-auto border-l border-zinc-200 lg:flex dark:border-zinc-800">
-          <LeadPanel lead={lead} phone={phone} />
+          <LeadPanel lead={lead} />
         </aside>
       ) : null}
     </>

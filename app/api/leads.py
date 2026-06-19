@@ -65,21 +65,14 @@ async def list_leads(
     )
 
 
-@router.get("/{phone}", response_model=LeadDetail)
-async def get_lead_by_phone(
-    phone: str,
-    db: AsyncSession = Depends(get_session),
-) -> LeadDetail:
-    """Detalhe de um lead pelo phone (chave natural)."""
-    lead_row = await db.execute(select(Lead).where(Lead.phone == phone))
-    lead = lead_row.scalar_one_or_none()
-    if lead is None:
-        raise HTTPException(status_code=404, detail="lead não encontrado")
-
-    cliente_row = await db.execute(select(Cliente).where(Cliente.phone == phone))
+async def _build_lead_detail(lead: Lead, db: AsyncSession) -> LeadDetail:
+    """Monta o LeadDetail (lead + cliente + contagem de mensagens)."""
+    cliente_row = await db.execute(select(Cliente).where(Cliente.phone == lead.phone))
     cliente = cliente_row.scalar_one_or_none()
 
-    count_stmt = select(func.count(Conversation.id)).where(Conversation.phone == phone)
+    count_stmt = select(func.count(Conversation.id)).where(
+        Conversation.phone == lead.phone
+    )
     count = (await db.execute(count_stmt)).scalar_one()
 
     return LeadDetail(
@@ -87,3 +80,38 @@ async def get_lead_by_phone(
         cliente=ClienteOut.model_validate(cliente) if cliente else None,
         conversation_count=int(count or 0),
     )
+
+
+@router.get("/by-numero/{numero}", response_model=LeadDetail)
+async def get_lead_by_numero(
+    numero: int,
+    db: AsyncSession = Depends(get_session),
+) -> LeadDetail:
+    """Detalhe de UMA cotação específica pelo seu número (#1001...)."""
+    lead_row = await db.execute(select(Lead).where(Lead.numero == numero))
+    lead = lead_row.scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="cotação não encontrada")
+    return await _build_lead_detail(lead, db)
+
+
+@router.get("/{phone}", response_model=LeadDetail)
+async def get_lead_by_phone(
+    phone: str,
+    db: AsyncSession = Depends(get_session),
+) -> LeadDetail:
+    """Detalhe da cotação MAIS RECENTE de um telefone.
+
+    Como o mesmo cliente pode ter várias cotações, devolve a última (usada no
+    painel lateral da conversa). Pra uma cotação específica, use /by-numero.
+    """
+    lead_row = await db.execute(
+        select(Lead)
+        .where(Lead.phone == phone)
+        .order_by(Lead.created_at.desc())
+        .limit(1)
+    )
+    lead = lead_row.scalar_one_or_none()
+    if lead is None:
+        raise HTTPException(status_code=404, detail="lead não encontrado")
+    return await _build_lead_detail(lead, db)

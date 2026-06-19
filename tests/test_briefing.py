@@ -13,9 +13,60 @@ from app.briefing import (
     parse_customer_whatsapp,
     parse_lead_temp,
     render_briefing,
+    save_lead,
     split_reply_and_briefing,
     split_reply_and_transfer,
 )
+from app.models import Lead
+
+
+class _FakeLeadSession:
+    """Sessão falsa que captura os leads inseridos (sem Postgres real)."""
+
+    def __init__(self) -> None:
+        self.added: list[Lead] = []
+
+    def add(self, obj: Lead) -> None:
+        self.added.append(obj)
+
+    async def flush(self) -> None:
+        # Simula o banco gerando o número de protocolo (sequência).
+        for i, lead in enumerate(self.added):
+            if lead.numero is None:
+                lead.numero = 1001 + i
+
+    async def refresh(self, obj: Lead) -> None:  # noqa: ARG002
+        pass
+
+
+@pytest.mark.asyncio
+async def test_save_lead_insere_nova_cotacao_a_cada_chamada() -> None:
+    """Mesmo cliente, 2 cotações → 2 leads distintos (NÃO sobrescreve)."""
+    db = _FakeLeadSession()
+
+    lead1 = await save_lead(
+        "5511999998888", db, briefing_md="cotação 1", lead_temp="quente", name="Ana"
+    )
+    lead2 = await save_lead(
+        "5511999998888", db, briefing_md="cotação 2", lead_temp="frio", name="Ana"
+    )
+
+    assert lead1 is not lead2  # dois objetos distintos
+    assert len(db.added) == 2  # inseriu dois — não fez upsert
+    assert lead1.briefing_md == "cotação 1"
+    assert lead2.briefing_md == "cotação 2"
+    assert lead1.numero != lead2.numero  # números de protocolo diferentes
+
+
+@pytest.mark.asyncio
+async def test_save_lead_ignora_campos_opcionais_vazios() -> None:
+    """Campos opcionais vazios não viram colunas (ficam None no lead novo)."""
+    db = _FakeLeadSession()
+    lead = await save_lead(
+        "5511999998888", db, briefing_md="b", lead_temp="morno", destination=""
+    )
+    assert lead.destination is None
+    assert lead.phone == "5511999998888"
 
 
 BRIEFING_SAMPLE = """Perfeito! Já organizei suas informações.

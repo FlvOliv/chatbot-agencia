@@ -9,7 +9,7 @@ export function RecentLeadCard({ lead }: { lead: LeadListItem }) {
   const dest = lead.destination?.trim() || "Destino não informado";
   return (
     <Link
-      href={`/leads/${encodeURIComponent(lead.phone)}`}
+      href={`/leads/${lead.numero}`}
       className="group flex items-center gap-3 rounded-lg border border-zinc-200 bg-white p-3 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-900 min-h-11"
     >
       <div className="min-w-0 flex-1">

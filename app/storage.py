@@ -54,6 +54,9 @@ async def upload_audio(
     path = f"{phone}/{uuid.uuid4().hex}.{_ext_for(mime_type)}"
     url = f"{settings.supabase_url.rstrip('/')}/storage/v1/object/{bucket}/{path}"
     headers = {
+        # O gateway do Supabase exige `apikey` em toda request (senão "No API
+        # key found in request"); o Bearer autentica como service_role.
+        "apikey": settings.supabase_service_key,
         "Authorization": f"Bearer {settings.supabase_service_key}",
         "Content-Type": mime_type or "application/octet-stream",
         "x-upsert": "true",
@@ -81,7 +84,10 @@ async def signed_url(path: str | None) -> str | None:
     bucket = settings.supabase_audio_bucket
     base = settings.supabase_url.rstrip("/")
     url = f"{base}/storage/v1/object/sign/{bucket}/{path}"
-    headers = {"Authorization": f"Bearer {settings.supabase_service_key}"}
+    headers = {
+        "apikey": settings.supabase_service_key,
+        "Authorization": f"Bearer {settings.supabase_service_key}",
+    }
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(

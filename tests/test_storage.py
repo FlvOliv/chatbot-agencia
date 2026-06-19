@@ -61,6 +61,7 @@ async def test_upload_audio_posts_and_returns_path(monkeypatch) -> None:
     assert "/storage/v1/object/audios/5511955554444/" in cap["url"]
     assert cap["content"] == b"audio-bytes"
     assert cap["headers"]["Authorization"] == "Bearer svc-key"
+    assert cap["headers"]["apikey"] == "svc-key"  # gateway exige o apikey
 
 
 @pytest.mark.asyncio

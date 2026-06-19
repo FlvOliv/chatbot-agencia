@@ -15,6 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatPhone } from "@/lib/format";
 import type { ConversationDetail } from "@/lib/types";
+import { AudioMessage } from "./audio-message";
 import {
   releaseConversation,
   replyConversation,
@@ -235,14 +236,7 @@ export function ConversaView({
                       </div>
                     ) : null}
                     {m.content}
-                    {m.audio_url ? (
-                      <audio
-                        controls
-                        preload="none"
-                        src={m.audio_url}
-                        className="mt-1 w-full max-w-[260px]"
-                      />
-                    ) : null}
+                    {m.audio_url ? <AudioMessage src={m.audio_url} /> : null}
                     <div
                       className={cn(
                         "mt-0.5 text-[10px]",

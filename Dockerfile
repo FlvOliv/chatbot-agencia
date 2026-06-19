@@ -10,8 +10,10 @@ WORKDIR /app
 # Pacotes do sistema:
 #   libpq-dev / build-essential — asyncpg/SQLAlchemy
 #   curl — healthcheck
+#   ffmpeg — recodifica as notas de voz do WhatsApp (Opus/OGG c/ duração
+#            quebrada) pra MP3 tocável no painel
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential libpq-dev curl \
+    && apt-get install -y --no-install-recommends build-essential libpq-dev curl ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Instala deps primeiro pra aproveitar cache de camadas do Docker

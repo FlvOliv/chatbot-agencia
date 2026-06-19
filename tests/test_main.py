@@ -81,6 +81,9 @@ async def test_audio_success_flows_as_text_from_audio(monkeypatch) -> None:
     async def fake_upload(phone, audio_bytes, mime):  # noqa: ANN001
         return "5511955554444/abc.ogg"
 
+    async def fake_transcode(audio_bytes):  # noqa: ANN001
+        return None  # sem ffmpeg → sobe o original (não importa pro assert)
+
     async def fake_transcribe(audio_bytes, mime):  # noqa: ANN001
         return "quero ir pra Bariloche"
 
@@ -92,6 +95,7 @@ async def test_audio_success_flows_as_text_from_audio(monkeypatch) -> None:
 
     monkeypatch.setattr(main.settings, "audio_transcription_enabled", True)
     monkeypatch.setattr(main, "download_media", fake_download)
+    monkeypatch.setattr(main, "transcode_to_mp3", fake_transcode)
     monkeypatch.setattr(main, "upload_audio", fake_upload)
     monkeypatch.setattr(main, "transcribe_audio", fake_transcribe)
     monkeypatch.setattr(main, "_process_text_message", fake_process)
@@ -103,6 +107,41 @@ async def test_audio_success_flows_as_text_from_audio(monkeypatch) -> None:
         "5511955554444", "quero ir pra Bariloche", "João", True, "5511955554444/abc.ogg"
     )
     assert "handoff" not in calls  # não passa pra Lu — a Malu segue
+
+
+@pytest.mark.asyncio
+async def test_audio_transcodes_to_mp3_before_upload(monkeypatch) -> None:
+    """ffmpeg OK → guarda o MP3 (audio/mpeg), não o OGG original."""
+    calls: dict[str, object] = {}
+
+    async def fake_download(media_id):  # noqa: ANN001
+        return b"ogg-bytes", "audio/ogg"
+
+    async def fake_transcode(audio_bytes):  # noqa: ANN001
+        return b"mp3-bytes"
+
+    async def fake_upload(phone, audio_bytes, mime):  # noqa: ANN001
+        calls["upload"] = (audio_bytes, mime)
+        return "5511955554444/abc.mp3"
+
+    async def fake_transcribe(audio_bytes, mime):  # noqa: ANN001
+        return "oi"
+
+    async def fake_process(*args, **kwargs):  # noqa: ANN002, ANN003
+        calls["media_path"] = kwargs.get("media_path")
+
+    monkeypatch.setattr(main.settings, "audio_transcription_enabled", True)
+    monkeypatch.setattr(main, "download_media", fake_download)
+    monkeypatch.setattr(main, "transcode_to_mp3", fake_transcode)
+    monkeypatch.setattr(main, "upload_audio", fake_upload)
+    monkeypatch.setattr(main, "transcribe_audio", fake_transcribe)
+    monkeypatch.setattr(main, "_process_text_message", fake_process)
+
+    await main._handle_audio_message("5511955554444", "João", "media_id_1")
+
+    # Subiu o MP3 convertido (não o OGG), com o mime certo.
+    assert calls["upload"] == (b"mp3-bytes", "audio/mpeg")
+    assert calls["media_path"] == "5511955554444/abc.mp3"
 
 
 @pytest.mark.asyncio
@@ -139,6 +178,9 @@ async def test_audio_empty_transcript_handoff_keeps_audio(monkeypatch) -> None:
     async def fake_download(media_id):  # noqa: ANN001
         return b"bytes", "audio/ogg"
 
+    async def fake_transcode(audio_bytes):  # noqa: ANN001
+        return None
+
     async def fake_upload(phone, audio_bytes, mime):  # noqa: ANN001
         return "5511955554444/abc.ogg"
 
@@ -153,6 +195,7 @@ async def test_audio_empty_transcript_handoff_keeps_audio(monkeypatch) -> None:
 
     monkeypatch.setattr(main.settings, "audio_transcription_enabled", True)
     monkeypatch.setattr(main, "download_media", fake_download)
+    monkeypatch.setattr(main, "transcode_to_mp3", fake_transcode)
     monkeypatch.setattr(main, "upload_audio", fake_upload)
     monkeypatch.setattr(main, "transcribe_audio", fake_transcribe)
     monkeypatch.setattr(main, "_process_text_message", fake_process)

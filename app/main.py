@@ -69,6 +69,7 @@ from app.session import (
     save_history,
     set_state,
 )
+from app.audioconv import transcode_to_mp3
 from app.storage import upload_audio
 from app.transcribe import transcribe_audio
 from app.whatsapp import (
@@ -569,7 +570,14 @@ async def _handle_audio_message(
         audio_bytes, mime_type = await download_media(media_id)
         # Guarda o áudio pra Lu ouvir no painel (best-effort: se o Storage não
         # estiver configurado ou falhar, volta None e a transcrição segue).
-        media_path = await upload_audio(phone, audio_bytes, mime_type)
+        # Recodifica pra MP3 antes (conserta a duração quebrada do OGG do
+        # WhatsApp, que faz o player parar cedo). Se o ffmpeg falhar, sobe o OGG.
+        mp3 = await transcode_to_mp3(audio_bytes)
+        if mp3:
+            media_path = await upload_audio(phone, mp3, "audio/mpeg")
+        else:
+            media_path = await upload_audio(phone, audio_bytes, mime_type)
+        # Transcrição usa o ÁUDIO ORIGINAL (o Whisper lê OGG sem problema).
         transcript = await transcribe_audio(audio_bytes, mime_type)
     except Exception:
         logger.exception("transcrição de áudio falhou para %s", phone)

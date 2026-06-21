@@ -228,8 +228,99 @@ async def test_send_reminder_skips_when_superseded() -> None:
 
 
 # ---------------------------------------------------------------------------
+# send_reminder task — trava ANTI-DUPLICADO (mesmo task_id reentregue)
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_send_reminder_skips_duplicate_same_task_id() -> None:
+    """ANTI-DUPLICADO: reentrega do MESMO task_id envia só na 1ª vez.
+
+    Reproduz a causa do bug: o broker Redis reentrega o mesmo job (mesmo id);
+    a checagem _is_current_reminder não pega (id idêntico). A trava de envio sim.
+    """
+    phone = "5511210000001"
+    from app.session import save_history
+
+    await save_history(phone, [{"role": "user", "content": "oi"}])
+    await get_redis().set(f"malu:reminders:{phone}", json.dumps(["tid-dup"]))
+
+    send_calls: list[tuple[str, str]] = []
+
+    async def fake_send(to, text):  # noqa: ANN001
+        send_calls.append((to, text))
+        return True
+
+    with patch.object(workers_tasks, "send_message", side_effect=fake_send):
+        r1 = await workers_tasks._send_reminder_async(phone, REMINDER_30M, "tid-dup")
+        r2 = await workers_tasks._send_reminder_async(phone, REMINDER_30M, "tid-dup")
+
+    assert r1["sent"] is True
+    assert r2["sent"] is False
+    assert r2["skipped"] == "already_sent"
+    assert send_calls == [(phone, REMINDER_30M)]  # enviou UMA vez só
+
+
+@pytest.mark.asyncio
+async def test_send_reminder_releases_claim_on_failed_send() -> None:
+    """Envio falho (sent=False) libera a marca → um retry legítimo pode enviar."""
+    phone = "5511210000002"
+    from app.session import save_history
+
+    await save_history(phone, [{"role": "user", "content": "oi"}])
+    await get_redis().set(f"malu:reminders:{phone}", json.dumps(["tid-fail"]))
+
+    attempts: list[bool] = []
+
+    async def fake_send_fail(to, text):  # noqa: ANN001
+        attempts.append(False)
+        return False
+
+    async def fake_send_ok(to, text):  # noqa: ANN001
+        attempts.append(True)
+        return True
+
+    with patch.object(workers_tasks, "send_message", side_effect=fake_send_fail):
+        r1 = await workers_tasks._send_reminder_async(phone, REMINDER_30M, "tid-fail")
+    assert r1["sent"] is False
+    assert await get_redis().get("malu:reminders:sent:tid-fail") is None  # liberada
+
+    with patch.object(workers_tasks, "send_message", side_effect=fake_send_ok):
+        r2 = await workers_tasks._send_reminder_async(phone, REMINDER_30M, "tid-fail")
+    assert r2["sent"] is True
+    assert len(attempts) == 2  # tentou de novo (não pulou)
+
+
+@pytest.mark.asyncio
+async def test_send_reminder_releases_claim_on_exception() -> None:
+    """Exceção no envio libera a marca (o retry do Celery pode reenviar)."""
+    phone = "5511210000003"
+    from app.session import save_history
+
+    await save_history(phone, [{"role": "user", "content": "oi"}])
+    await get_redis().set(f"malu:reminders:{phone}", json.dumps(["tid-exc"]))
+
+    async def fake_send_boom(to, text):  # noqa: ANN001, ARG001
+        raise RuntimeError("graph api down")
+
+    with patch.object(workers_tasks, "send_message", side_effect=fake_send_boom):
+        with pytest.raises(RuntimeError):
+            await workers_tasks._send_reminder_async(phone, REMINDER_30M, "tid-exc")
+
+    assert await get_redis().get("malu:reminders:sent:tid-exc") is None  # liberada
+
+
+# ---------------------------------------------------------------------------
 # Constantes — sanity
 # ---------------------------------------------------------------------------
+def test_broker_visibility_timeout_exceeds_24h() -> None:
+    """Causa raiz: o visibility_timeout do broker precisa cobrir o ETA do pré-24h.
+
+    Sem isso o Redis reentrega o callback longo de hora em hora → duplicação.
+    """
+    opts = workers_tasks.celery_app.conf.broker_transport_options
+    assert opts["visibility_timeout"] == workers_tasks.REMINDER_VISIBILITY_TIMEOUT
+    assert opts["visibility_timeout"] > 24 * 60 * 60
+
+
 def test_thirty_min_seconds() -> None:
     assert THIRTY_MIN_SECONDS == 1800
 

@@ -42,6 +42,13 @@ def _broker_url(url: str) -> str:
 
 _BROKER_URL = _broker_url(settings.redis_url)
 
+# O broker Redis reentrega tarefas não confirmadas após `visibility_timeout`
+# (default do kombu = 1h). O callback pré-24h fica ~23h agendado (ETA longo);
+# com o default, o Redis acha que ele "se perdeu" e o reentrega de hora em hora,
+# acumulando cópias que disparam JUNTAS quando o ETA chega → mensagens
+# duplicadas. 25h cobre o ETA máximo (24h) com folga e mata a reentrega.
+REMINDER_VISIBILITY_TIMEOUT = 25 * 60 * 60  # 90000s
+
 celery_app = Celery(
     "malu",
     broker=_BROKER_URL,
@@ -56,6 +63,8 @@ celery_app.conf.update(
     enable_utc=True,
     task_acks_late=True,
     worker_max_tasks_per_child=200,
+    broker_transport_options={"visibility_timeout": REMINDER_VISIBILITY_TIMEOUT},
+    result_backend_transport_options={"visibility_timeout": REMINDER_VISIBILITY_TIMEOUT},
 )
 
 FOLLOWUP_TEXT = (
@@ -99,6 +108,23 @@ def send_reminder(self, phone: str, message: str) -> dict[str, Any]:
         raise self.retry(exc=exc, countdown=60)
 
 
+# TTL da marca "callback já enviado" (anti-duplicado). Precisa cobrir toda a
+# janela em que cópias reentregues do MESMO job poderiam chegar (~24h + folga).
+REMINDER_SENT_TTL = 26 * 60 * 60  # 93600s
+
+
+def _sent_key(task_id: str) -> str:
+    return f"malu:reminders:sent:{task_id}"
+
+
+async def _release_claim(claim_key: str, phone: str) -> None:
+    """Libera a marca anti-duplicado para um retry legítimo após falha de envio."""
+    try:
+        await get_redis().delete(claim_key)
+    except Exception:
+        logger.exception("reminder dedup: redis delete falhou para %s", phone)
+
+
 async def _is_current_reminder(phone: str, task_id: str | None) -> bool:
     """True só se `task_id` ainda consta na lista de lembretes ATUAIS do número.
 
@@ -139,7 +165,31 @@ async def _send_reminder_async(
         logger.info("reminder skipped for %s — session expired", phone)
         return {"phone": phone, "sent": False, "skipped": "no_history"}
 
-    ok = await send_message(phone, message)
+    # Trava anti-duplicado: o broker pode reentregar o MESMO job (mesmo task_id)
+    # — a checagem _is_current_reminder NÃO pega isso (id idêntico). Aqui só a
+    # 1ª entrega "reivindica" o envio (SETNX atômico); cópias seguintes veem a
+    # marca e pulam. Falha real de envio libera a marca para um retry legítimo.
+    claim_key = _sent_key(task_id) if task_id else None
+    if claim_key is not None:
+        try:
+            claimed = await get_redis().set(
+                claim_key, "1", nx=True, ex=REMINDER_SENT_TTL
+            )
+        except Exception:
+            logger.exception("reminder dedup: redis set falhou para %s", phone)
+            return {"phone": phone, "sent": False, "skipped": "dedup_error"}
+        if not claimed:
+            logger.info("reminder skipped for %s — already sent (%s)", phone, task_id)
+            return {"phone": phone, "sent": False, "skipped": "already_sent"}
+
+    try:
+        ok = await send_message(phone, message)
+    except Exception:
+        if claim_key is not None:
+            await _release_claim(claim_key, phone)
+        raise
+    if not ok and claim_key is not None:
+        await _release_claim(claim_key, phone)
     return {"phone": phone, "sent": ok}
 
 

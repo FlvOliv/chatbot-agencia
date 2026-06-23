@@ -64,14 +64,16 @@ async def run_daily_report(now: datetime | None = None) -> dict[str, Any]:
 async def maybe_run_daily_report(now_local: datetime | None = None) -> dict[str, Any]:
     """Roda o resumo no máximo 1×/dia, a partir de `daily_report_hour`.
 
-    Como o cron bate a cada minuto, precisamos de uma trava: SETNX no Redis por
-    data (só a 1ª batida após a hora dispara; as outras veem a marca e pulam).
-    Custo: ~1 comando Redis/dia — irrelevante. Antes da hora, nem tenta.
+    Como o cron bate a cada minuto, só tentamos a trava DENTRO da hora do
+    resumo (`daily_report_hour`) — fora dela, retorna na hora sem tocar no Redis
+    (senão seriam ~960 comandos/dia). Dentro da hora, SETNX por data garante 1
+    disparo só (a 1ª batida roda; as outras veem a marca e pulam). ~60 toques de
+    Redis/dia no pior caso. Se o sistema ficar fora a hora inteira, pula o dia.
     """
     tz = ZoneInfo(settings.callback_timezone)
     now_local = now_local or datetime.now(tz)
-    if now_local.hour < settings.daily_report_hour:
-        return {"ran": False, "reason": "antes_da_hora"}
+    if now_local.hour != settings.daily_report_hour:
+        return {"ran": False, "reason": "fora_da_hora"}
 
     key = f"malu:daily_report:{now_local.date().isoformat()}"
     try:

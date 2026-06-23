@@ -66,15 +66,17 @@ def test_tick_ok_runs_both_jobs(client: TestClient) -> None:
 # maybe_run_daily_report — guarda 1×/dia (usa fakeredis do conftest)
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_daily_report_before_hour_does_not_run() -> None:
-    now = datetime(2026, 6, 23, 7, 0, tzinfo=TZ)  # antes das 8
-    result = await reports.maybe_run_daily_report(now_local=now)
-    assert result == {"ran": False, "reason": "antes_da_hora"}
+async def test_daily_report_outside_hour_does_not_run() -> None:
+    # nem antes (7h) nem depois (10h) da hora do resumo (8h) → não toca no Redis
+    for h in (7, 10):
+        now = datetime(2026, 6, 23, h, 0, tzinfo=TZ)
+        result = await reports.maybe_run_daily_report(now_local=now)
+        assert result == {"ran": False, "reason": "fora_da_hora"}
 
 
 @pytest.mark.asyncio
 async def test_daily_report_runs_once_per_day() -> None:
-    now = datetime(2026, 6, 23, 9, 0, tzinfo=TZ)  # depois das 8
+    now = datetime(2026, 6, 23, 8, 0, tzinfo=TZ)  # dentro da hora do resumo
 
     async def fake_run():  # noqa: ANN202
         return {"total": 3, "counts": {}, "sent": True}

@@ -124,6 +124,14 @@ class Settings(BaseSettings):
         description="Minutos antes do fim da janela de 24h pra disparar o pré-24h",
     )
 
+    # Cron dos follow-ups (substitui o worker Celery): um cron externo bate em
+    # POST /internal/tick com este segredo no header X-Cron-Secret. Vazio =
+    # endpoint bloqueado (fail-safe). O resumo diário roda 1×/dia a partir desta hora.
+    cron_secret: str = Field(default="")
+    daily_report_hour: int = Field(
+        default=8, description="Hora (0-23, fuso callback_timezone) do resumo diário"
+    )
+
     # Push web (Fase 3): chaves VAPID pra notificar a Lu no navegador.
     # Se vazias, o push fica desligado (não quebra nada). Geradas com py_vapid.
     vapid_public_key: str = Field(default="")

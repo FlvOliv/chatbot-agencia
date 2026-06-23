@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from app import __version__
 from app.ai import extract_lead_data, route_and_ask
 from app.api import api_router
+from app.api import tick as tick_api
 from app.briefing import (
     extract_customer_name,
     lead_columns_from_data,
@@ -146,6 +147,10 @@ app.add_middleware(
 
 # Rotas REST do CRM (todas em /api/*, exigem X-API-Key)
 app.include_router(api_router)
+
+# Endpoint do cron (/internal/tick) — dispara follow-ups + resumo diário.
+# Protegido por X-Cron-Secret (CRON_SECRET), fora do /api do painel.
+app.include_router(tick_api.router)
 
 
 # ---------------------------------------------------------------------------

@@ -184,6 +184,45 @@ class PushSubscription(Base):
         return f"<PushSubscription endpoint={self.endpoint[:40]!r}...>"
 
 
+class Reminder(Base):
+    """Follow-up agendado (callback) — substitui o agendamento via Celery/Redis.
+
+    Cada coleta em aberto gera até 2 linhas: o lembrete de 30 min e o pré-24h.
+    Um cron externo bate em `/internal/tick` a cada minuto e dispara os que já
+    venceram (`due_at <= now`) e ainda não foram enviados (`sent_at IS NULL`).
+
+    Supersede: uma mensagem nova do cliente apaga os pendentes do número e
+    reinsere → nunca dispara um lembrete velho. `sent_at` serve de trava
+    anti-duplicado (marcado ANTES do envio, dentro de uma transação travada).
+    """
+
+    __tablename__ = "reminders"
+    __table_args__ = (
+        CheckConstraint("kind IN ('30m','pre24h')", name="ck_reminders_kind"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=func.gen_random_uuid(),
+    )
+    phone: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    due_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<Reminder phone={self.phone!r} kind={self.kind!r} due={self.due_at}>"
+
+
 class Conversation(Base):
     """Log de cada mensagem trocada — auditoria e analytics."""
 

@@ -114,6 +114,11 @@ export async function createTag(name: string, color: string): Promise<Tag> {
   return tag;
 }
 
+export async function deleteTag(tagId: string): Promise<void> {
+  await deleteApi(`/tags/${tagId}`);
+  revalidatePath("/conversas");
+}
+
 export async function addTagToConversation(
   phone: string,
   tagId: string,

@@ -5,7 +5,9 @@ Associação tag↔cliente fica em /api/conversations/{phone}/tags/* (conversati
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,5 +40,26 @@ async def create_tag(body: TagIn, db: AsyncSession = Depends(get_session)) -> Ta
         raise HTTPException(status_code=409, detail="Tag já existe com esse nome.")
     await db.refresh(tag)
     return tag
+
+
+@router.delete("/{tag_id}")
+async def delete_tag(
+    tag_id: str, db: AsyncSession = Depends(get_session)
+) -> Response:
+    """Remove a etiqueta do catálogo (idempotente).
+
+    O FK `cliente_tags.tag_id` é ON DELETE CASCADE → a tag some de todas as
+    conversas automaticamente.
+    """
+    try:
+        tid = uuid.UUID(tag_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="tag_id inválido.")
+
+    tag = await db.get(Tag, tid)
+    if tag:
+        await db.delete(tag)
+        await db.commit()
+    return Response(status_code=204)
 
 

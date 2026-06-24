@@ -2,10 +2,15 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { ExternalLink, Copy, Check, FileText, Plus, X, Tag as TagIcon } from "lucide-react";
+import { ExternalLink, Copy, Check, FileText, Plus, X, Tag as TagIcon, Trash2 } from "lucide-react";
 
 import type { LeadDetail, Tag } from "@/lib/types";
-import { addTagToConversation, removeTagFromConversation, createTag } from "@/lib/actions";
+import {
+  addTagToConversation,
+  removeTagFromConversation,
+  createTag,
+  deleteTag,
+} from "@/lib/actions";
 import { formatPhone } from "@/lib/format";
 import { Avatar } from "./avatar";
 import { TempBadge } from "@/components/temp-badge";
@@ -48,6 +53,7 @@ function TagSelector({
   allTags: Tag[];
 }) {
   const [tags, setTags] = useState<Tag[]>(currentTags);
+  const [catalog, setCatalog] = useState<Tag[]>(allTags);
   const [open, setOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newColor, setNewColor] = useState("#6b7280");
@@ -68,7 +74,7 @@ function TagSelector({
   }, [open]);
 
   const currentIds = new Set(tags.map((t) => t.id));
-  const available = allTags.filter((t) => !currentIds.has(t.id));
+  const available = catalog.filter((t) => !currentIds.has(t.id));
 
   async function handleAdd(tag: Tag) {
     setLoading(tag.id);
@@ -97,11 +103,29 @@ function TagSelector({
     try {
       const tag = await createTag(newName.trim(), newColor);
       await addTagToConversation(phone, tag.id);
+      setCatalog((prev) => [...prev, tag]);
       setTags((prev) => [...prev, tag]);
       setNewName("");
       setNewColor("#6b7280");
       setCreating(false);
       setOpen(false);
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleDeleteTag(tag: Tag) {
+    if (
+      !window.confirm(
+        `Excluir a etiqueta "${tag.name}" do sistema? Ela some de todas as conversas.`,
+      )
+    )
+      return;
+    setLoading(tag.id);
+    try {
+      await deleteTag(tag.id);
+      setCatalog((prev) => prev.filter((t) => t.id !== tag.id));
+      setTags((prev) => prev.filter((t) => t.id !== tag.id));
     } finally {
       setLoading(null);
     }
@@ -142,17 +166,26 @@ function TagSelector({
           {available.length > 0 ? (
             <ul className="max-h-44 overflow-y-auto p-1">
               {available.map((tag) => (
-                <li key={tag.id}>
+                <li key={tag.id} className="group flex items-center">
                   <button
                     onClick={() => handleAdd(tag)}
                     disabled={loading === tag.id}
-                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800"
+                    className="flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800"
                   >
                     <span
                       className="size-2.5 shrink-0 rounded-full"
                       style={{ background: tag.color }}
                     />
                     {tag.name}
+                  </button>
+                  <button
+                    onClick={() => handleDeleteTag(tag)}
+                    disabled={loading === tag.id}
+                    aria-label={`Excluir etiqueta ${tag.name}`}
+                    title="Excluir do sistema"
+                    className="shrink-0 rounded p-1 text-zinc-300 opacity-0 hover:bg-zinc-100 hover:text-red-500 group-hover:opacity-100 disabled:opacity-40 dark:hover:bg-zinc-800"
+                  >
+                    <Trash2 className="size-3" />
                   </button>
                 </li>
               ))}

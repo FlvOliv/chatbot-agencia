@@ -22,14 +22,13 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Código
 COPY app ./app
-COPY workers ./workers
 COPY alembic ./alembic
 COPY alembic.ini ./
 COPY scripts ./scripts
 COPY Procfile ./
 
 # Garante executáveis
-RUN chmod +x scripts/start_web.sh scripts/start_worker.sh
+RUN chmod +x scripts/start_web.sh
 
 # Usuário não-root
 RUN useradd --create-home --shell /bin/bash malu && chown -R malu:malu /app
@@ -43,6 +42,6 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -fsS "http://localhost:${PORT}/health" || exit 1
 
-# Por padrão sobe o web (uvicorn + migrations). Override pra worker:
-#   docker run ... ./scripts/start_worker.sh
+# Sobe o web (uvicorn + migrations). Os follow-ups rodam por cron externo
+# (POST /internal/tick), não mais por worker Celery.
 CMD ["./scripts/start_web.sh"]

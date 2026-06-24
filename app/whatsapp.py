@@ -15,10 +15,22 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 GRAPH_API_VERSION = "v21.0"
+# O envio de áudio (nota de voz) usa a flag `voice: true`, que só existe em
+# versões mais novas da Graph. Isolado aqui pra NÃO mexer no caminho de texto
+# (v21.0, estável). Cloud API é retrocompatível.
+AUDIO_GRAPH_API_VERSION = "v23.0"
 
 
 def _api_url() -> str:
     return f"https://graph.facebook.com/{GRAPH_API_VERSION}/{settings.wa_phone_id}/messages"
+
+
+def _audio_messages_url() -> str:
+    return f"https://graph.facebook.com/{AUDIO_GRAPH_API_VERSION}/{settings.wa_phone_id}/messages"
+
+
+def _media_upload_url() -> str:
+    return f"https://graph.facebook.com/{AUDIO_GRAPH_API_VERSION}/{settings.wa_phone_id}/media"
 
 
 def _headers() -> dict[str, str]:
@@ -78,6 +90,87 @@ async def send_message(to: str, text: str) -> bool:
         return True
     except httpx.HTTPError:
         logger.exception("whatsapp send_message HTTP error for %s", to)
+        return False
+
+
+async def upload_media(
+    audio_bytes: bytes,
+    mime_type: str = "audio/ogg",
+    filename: str = "nota.ogg",
+) -> str | None:
+    """Sobe mídia pra Graph API (passo 1 do envio) e devolve o `media_id`.
+
+    Multipart: `file` (binário) + `messaging_product=whatsapp` + `type` (MIME).
+    Retorna `None` em falha (logada) — o chamador decide o que fazer.
+    """
+    if not audio_bytes:
+        return None
+
+    auth = {"Authorization": f"Bearer {settings.wa_token}"}
+    data = {"messaging_product": "whatsapp", "type": mime_type}
+    files = {"file": (filename, audio_bytes, mime_type)}
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                _media_upload_url(), headers=auth, data=data, files=files
+            )
+        if resp.status_code >= 400:
+            logger.error(
+                "whatsapp upload_media failed status=%s body=%s",
+                resp.status_code,
+                resp.text,
+            )
+            return None
+        return (resp.json() or {}).get("id")
+    except httpx.HTTPError:
+        logger.exception("whatsapp upload_media HTTP error")
+        return None
+
+
+async def send_audio(to: str, media_id: str, voice: bool = True) -> bool:
+    """Envia áudio pelo Cloud API (passo 2). Com `voice=True` vira nota de voz.
+
+    Defensivo: se a Meta recusar a flag `voice` (versão/compat), reenvia UMA vez
+    sem ela — vira anexo de áudio comum, mas ainda toca pro cliente.
+    """
+
+    def _payload(with_voice: bool) -> dict[str, Any]:
+        audio: dict[str, Any] = {"id": media_id}
+        if with_voice:
+            audio["voice"] = True
+        return {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": to,
+            "type": "audio",
+            "audio": audio,
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                _audio_messages_url(), headers=_headers(), json=_payload(voice)
+            )
+            if resp.status_code >= 400 and voice:
+                logger.warning(
+                    "send_audio voice=true recusado (status=%s) — retry sem voice. body=%s",
+                    resp.status_code,
+                    resp.text[:300],
+                )
+                resp = await client.post(
+                    _audio_messages_url(), headers=_headers(), json=_payload(False)
+                )
+            if resp.status_code >= 400:
+                logger.error(
+                    "whatsapp send_audio failed status=%s body=%s",
+                    resp.status_code,
+                    resp.text,
+                )
+                return False
+        logger.info("whatsapp send_audio OK to=%s media_id=%s", to, media_id)
+        return True
+    except httpx.HTTPError:
+        logger.exception("whatsapp send_audio HTTP error for %s", to)
         return False
 
 

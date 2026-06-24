@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { formatPhone } from "@/lib/format";
 import type { ConversationDetail } from "@/lib/types";
 import { AudioMessage } from "./audio-message";
+import { AudioRecorder } from "./audio-recorder";
 import {
   releaseConversation,
   replyConversation,
@@ -291,6 +292,14 @@ export function ConversaView({
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSend();
             }}
           />
+          <AudioRecorder
+            phone={conv.phone}
+            onSent={() => {
+              setPaused(true);
+              router.refresh();
+            }}
+            onError={setError}
+          />
           <button
             onClick={handleSend}
             disabled={pending || !text.trim()}
@@ -300,7 +309,9 @@ export function ConversaView({
             <Send className="size-4" />
           </button>
         </div>
-        <p className="mt-1.5 text-[11px] text-zinc-400">Ctrl/⌘ + Enter para enviar</p>
+        <p className="mt-1.5 text-[11px] text-zinc-400">
+          Ctrl/⌘ + Enter para enviar · 🎤 grava nota de voz
+        </p>
       </div>
     </div>
   );

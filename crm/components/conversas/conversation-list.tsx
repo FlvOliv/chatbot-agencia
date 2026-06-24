@@ -5,7 +5,7 @@ import Link from "next/link";
 
 import { cn } from "@/lib/utils";
 import { formatPhone } from "@/lib/format";
-import type { ConversationSummary } from "@/lib/types";
+import type { ConversationSummary, Tag } from "@/lib/types";
 import { Avatar } from "./avatar";
 import { TempBadge } from "@/components/temp-badge";
 
@@ -32,11 +32,28 @@ export function ConversationList({
   activePhone?: string;
 }) {
   const [tab, setTab] = useState<Tab>("todas");
+  const [filterTagId, setFilterTagId] = useState<string | null>(null);
 
   const waiting = conversations.filter((c) => c.bot_paused);
   const hot = conversations.filter(isHot);
-  const list =
+
+  // Todas as tags únicas presentes nas conversas
+  const allTagsMap = new Map<string, Tag>();
+  for (const c of conversations) {
+    for (const t of c.tags ?? []) {
+      if (!allTagsMap.has(t.id)) allTagsMap.set(t.id, t);
+    }
+  }
+  const uniqueTags = Array.from(allTagsMap.values()).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+
+  const byTab =
     tab === "aguardando" ? waiting : tab === "quentes" ? hot : conversations;
+
+  const list = filterTagId
+    ? byTab.filter((c) => (c.tags ?? []).some((t) => t.id === filterTagId))
+    : byTab;
 
   const tabs: Array<{ id: Tab; label: string; count: number }> = [
     { id: "todas", label: "Todas", count: conversations.length },
@@ -46,6 +63,7 @@ export function ConversationList({
 
   return (
     <div>
+      {/* Abas */}
       <div className="flex flex-wrap gap-1.5 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
         {tabs.map((t) => (
           <button
@@ -75,13 +93,44 @@ export function ConversationList({
         ))}
       </div>
 
+      {/* Filtro por etiqueta — só aparece se houver etiquetas */}
+      {uniqueTags.length > 0 && (
+        <div className="flex gap-1.5 overflow-x-auto border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
+          {filterTagId !== null && (
+            <button
+              onClick={() => setFilterTagId(null)}
+              className="shrink-0 rounded-full border border-zinc-300 px-2 py-0.5 text-[10px] text-zinc-500 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            >
+              ✕ limpar
+            </button>
+          )}
+          {uniqueTags.map((tag) => (
+            <button
+              key={tag.id}
+              onClick={() =>
+                setFilterTagId((prev) => (prev === tag.id ? null : tag.id))
+              }
+              className={cn(
+                "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium text-white transition-opacity",
+                filterTagId === tag.id ? "opacity-100 ring-2 ring-offset-1 ring-zinc-400" : "opacity-70 hover:opacity-100",
+              )}
+              style={{ background: tag.color }}
+            >
+              {tag.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {list.length === 0 ? (
         <div className="p-6 text-center text-sm text-zinc-500">
-          {tab === "aguardando"
-            ? "Nenhuma conversa aguardando você."
-            : tab === "quentes"
-              ? "Nenhuma conversa quente agora."
-              : "Nenhuma conversa ainda."}
+          {filterTagId
+            ? "Nenhuma conversa com essa etiqueta."
+            : tab === "aguardando"
+              ? "Nenhuma conversa aguardando você."
+              : tab === "quentes"
+                ? "Nenhuma conversa quente agora."
+                : "Nenhuma conversa ainda."}
         </div>
       ) : (
         <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -117,6 +166,24 @@ export function ConversationList({
                         </span>
                       ) : null}
                       {c.lead_temp ? <TempBadge temp={c.lead_temp} /> : null}
+                      {/* Mini-badges de etiqueta — só em telas lg+ */}
+                      {(c.tags ?? []).length > 0 && (
+                        <span className="hidden lg:flex items-center gap-1">
+                          {(c.tags ?? []).slice(0, 3).map((tag) => (
+                            <span
+                              key={tag.id}
+                              className="size-2 rounded-full"
+                              style={{ background: tag.color }}
+                              title={tag.name}
+                            />
+                          ))}
+                          {(c.tags ?? []).length > 3 && (
+                            <span className="text-[9px] text-zinc-400">
+                              +{(c.tags ?? []).length - 3}
+                            </span>
+                          )}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </Link>

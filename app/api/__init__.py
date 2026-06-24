@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api import config, conversations, leads, metrics, push, reservas
+from app.api import config, conversations, leads, metrics, push, reservas, tags
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(leads.router)
@@ -26,3 +26,4 @@ api_router.include_router(reservas.router)
 api_router.include_router(metrics.router)
 api_router.include_router(config.router)
 api_router.include_router(push.router)
+api_router.include_router(tags.router)

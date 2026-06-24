@@ -2,24 +2,28 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import asyncio
+import uuid
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pydantic import BaseModel, Field
 
 from app.api.auth import require_api_key
-from app.api.schemas import ConversationDetail, ConversationSummary, MessageOut
+from app.api.schemas import ConversationDetail, ConversationSummary, MessageOut, TagOut
+from app.audioconv import transcode_to_mp3, transcode_to_ogg_opus
 from app.database import get_session
-from app.models import Cliente, Conversation, Lead
-from app.storage import signed_url
+from app.models import Cliente, ClienteTag, Conversation, Lead, Tag
+from app.storage import signed_url, upload_audio
 from app.session import (
     STATE_TRANSFERRED,
     clear_state,
     get_state,
     set_state,
 )
-from app.whatsapp import send_message
+from app.whatsapp import send_audio, send_message, upload_media
 
 router = APIRouter(
     prefix="/conversations",
@@ -68,8 +72,22 @@ async def list_conversations(
     rows = await db.execute(
         stmt.order_by(last_msg_subq.c.last_at.desc()).limit(limit)
     )
+    rows_all = rows.all()
+
+    # Batch: carrega tags de todos os phones em 1 query (evita N+1)
+    tags_by_phone: dict[str, list[Tag]] = {}
+    if rows_all:
+        phones_in_result = [r[0] for r in rows_all]
+        tag_rows = await db.execute(
+            select(ClienteTag.cliente_phone, Tag)
+            .join(Tag, Tag.id == ClienteTag.tag_id)
+            .where(ClienteTag.cliente_phone.in_(phones_in_result))
+        )
+        for cp, tag in tag_rows.all():
+            tags_by_phone.setdefault(cp, []).append(tag)
+
     summaries: list[ConversationSummary] = []
-    for phone, last_at, msg_count in rows.all():
+    for phone, last_at, msg_count in rows_all:
         # Preview da última mensagem
         last_content_row = await db.execute(
             select(Conversation.content)
@@ -100,6 +118,7 @@ async def list_conversations(
                 message_count=int(msg_count or 0),
                 lead_temp=lead_temp,
                 bot_paused=(state == STATE_TRANSFERRED),
+                tags=[TagOut.model_validate(t) for t in tags_by_phone.get(phone, [])],
             )
         )
     return summaries
@@ -214,3 +233,107 @@ async def human_reply(
         error = f"Falha no envio: {exc}"
 
     return ReplyOut(phone=phone, sent=sent, error=error)
+
+
+@router.post("/{phone}/reply-audio", response_model=ReplyOut)
+async def human_reply_audio(
+    phone: str,
+    audio: UploadFile = File(...),
+    db: AsyncSession = Depends(get_session),
+) -> ReplyOut:
+    """A Lu grava uma nota de voz no painel e manda pro cliente.
+
+    Recebe o áudio do navegador (webm/mp4), recodifica em paralelo pra OGG/Opus
+    (nota de voz no WhatsApp) e MP3 (player do painel, toca em qualquer
+    navegador). Guarda o MP3 no Storage, grava no histórico e envia o OGG pela
+    Cloud API. Garante o estado 'transferido' (bot calado).
+    """
+    raw = await audio.read()
+    if not raw:
+        raise HTTPException(status_code=422, detail="Áudio vazio.")
+
+    await set_state(phone, STATE_TRANSFERRED)
+
+    # 2 transcodes em paralelo: OGG (envio) + MP3 (painel)
+    ogg, mp3 = await asyncio.gather(
+        transcode_to_ogg_opus(raw),
+        transcode_to_mp3(raw),
+    )
+
+    # Guarda o MP3 pro player do painel (best-effort — não bloqueia o envio)
+    media_path = await upload_audio(phone, mp3, "audio/mpeg") if mp3 else None
+
+    # Grava no histórico (marcada como 'human')
+    db.add(
+        Conversation(
+            phone=phone,
+            role="assistant",
+            content="🎤 Áudio",
+            model_used="human",
+            media_path=media_path,
+        )
+    )
+    await db.commit()
+
+    # Envia o OGG/Opus pelo WhatsApp (2 passos: upload → send)
+    sent = False
+    error: str | None = None
+    if not ogg:
+        error = "Não consegui converter o áudio (ffmpeg). Veja os logs."
+    else:
+        try:
+            media_id = await upload_media(ogg, "audio/ogg", "nota.ogg")
+            if media_id:
+                sent = await send_audio(phone, media_id)
+            if not sent:
+                error = "Meta recusou o envio do áudio (número/permissão). Veja os logs."
+        except Exception as exc:  # noqa: BLE001
+            error = f"Falha no envio do áudio: {exc}"
+
+    return ReplyOut(phone=phone, sent=sent, error=error)
+
+
+# ---------------------------------------------------------------------------
+# Tags da conversa — associação cliente ↔ tag
+# ---------------------------------------------------------------------------
+
+@router.post("/{phone}/tags/{tag_id}", response_model=TagOut, status_code=201)
+async def add_tag(
+    phone: str,
+    tag_id: str,
+    db: AsyncSession = Depends(get_session),
+) -> Tag:
+    """Associa uma etiqueta ao cliente da conversa (idempotente)."""
+    try:
+        tid = uuid.UUID(tag_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="tag_id inválido.")
+
+    tag = await db.get(Tag, tid)
+    if not tag:
+        raise HTTPException(status_code=404, detail="Tag não encontrada.")
+
+    existing = await db.get(ClienteTag, (phone, tid))
+    if not existing:
+        db.add(ClienteTag(cliente_phone=phone, tag_id=tid))
+        await db.commit()
+    return tag
+
+
+@router.delete("/{phone}/tags/{tag_id}")
+async def remove_tag(
+    phone: str,
+    tag_id: str,
+    db: AsyncSession = Depends(get_session),
+) -> Response:
+    """Remove a associação de uma etiqueta com o cliente (idempotente)."""
+    try:
+        tid = uuid.UUID(tag_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="tag_id inválido.")
+
+    assoc = await db.get(ClienteTag, (phone, tid))
+    if assoc:
+        await db.delete(assoc)
+        await db.commit()
+    return Response(status_code=204)

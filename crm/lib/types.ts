@@ -1,5 +1,12 @@
 export type LeadTemp = "frio" | "morno" | "quente" | "urgente";
 
+export interface Tag {
+  id: string;
+  name: string;
+  color: string;
+  created_at: string;
+}
+
 export type HealthStatus = "ok" | "degraded" | "down";
 
 export interface AppConfig {
@@ -81,6 +88,7 @@ export interface ConversationSummary {
   message_count: number;
   lead_temp: LeadTemp | null;
   bot_paused: boolean;
+  tags: Tag[];
 }
 
 export interface ConversationState {

@@ -1,5 +1,12 @@
 // Service worker do painel da Malu — recebe os pushes de lead novo (Fase 3).
 
+// Handler de fetch (pass-through pra rede). Não cacheia nada — só existe pra o
+// navegador considerar o app instalável (critério de PWA do Chrome/Android).
+// No iOS o "Adicionar à Tela de Início" já funciona só com o manifest.
+self.addEventListener("fetch", () => {
+  // network pass-through — sem interceptar
+});
+
 self.addEventListener("push", (event) => {
   let data = { title: "Malu", body: "Novo lead", url: "/" };
   try {

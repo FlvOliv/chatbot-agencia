@@ -223,6 +223,43 @@ class Reminder(Base):
         return f"<Reminder phone={self.phone!r} kind={self.kind!r} due={self.due_at}>"
 
 
+class Tag(Base):
+    """Etiqueta colorida para organizar conversas no painel."""
+
+    __tablename__ = "tags"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=func.gen_random_uuid(),
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    color: Mapped[str] = mapped_column(String(7), nullable=False, server_default="#6b7280")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<Tag name={self.name!r} color={self.color!r}>"
+
+
+class ClienteTag(Base):
+    """Associação M2M cliente ↔ tag (por phone do cliente)."""
+
+    __tablename__ = "cliente_tags"
+
+    cliente_phone: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("clientes.phone", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    tag_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tags.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+
 class Conversation(Base):
     """Log de cada mensagem trocada — auditoria e analytics."""
 

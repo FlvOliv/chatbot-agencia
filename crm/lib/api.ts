@@ -11,6 +11,7 @@ import type {
   LeadDetail,
   LeadListResponse,
   LeadTemp,
+  Tag,
 } from "./types";
 
 const API_BASE_URL =
@@ -177,6 +178,15 @@ export async function listConversations(
     );
   } catch (err) {
     console.error("[api] listConversations", err);
+    return [];
+  }
+}
+
+export async function listTags(): Promise<Tag[]> {
+  try {
+    return await apiFetch<Tag[]>("/tags", { revalidate: 30 });
+  } catch (err) {
+    console.error("[api] listTags", err);
     return [];
   }
 }

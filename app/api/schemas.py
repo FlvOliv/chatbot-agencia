@@ -89,6 +89,22 @@ class LeadDetail(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
+class TagOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: StrId
+    name: str
+    color: str
+    created_at: datetime
+
+
+class TagIn(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+    color: str = Field(default="#6b7280", pattern=r"^#[0-9a-fA-F]{6}$")
+
+
+# ---------------------------------------------------------------------------
 # Conversation
 # ---------------------------------------------------------------------------
 class MessageOut(BaseModel):
@@ -115,6 +131,7 @@ class ConversationSummary(BaseModel):
     message_count: int
     lead_temp: str | None = None
     bot_paused: bool = False
+    tags: list[TagOut] = []
 
 
 class ConversationDetail(BaseModel):

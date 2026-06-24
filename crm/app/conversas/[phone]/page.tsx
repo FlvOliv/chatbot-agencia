@@ -6,6 +6,7 @@ import {
   getConversationState,
   getLead,
   listConversations,
+  listTags,
 } from "@/lib/api";
 import { ConversaWorkspace } from "@/components/conversas/conversa-workspace";
 import { ConversationList } from "@/components/conversas/conversation-list";
@@ -21,12 +22,16 @@ export default async function ConversaDetailPage({
   const { phone } = await params;
   const decoded = decodeURIComponent(phone);
 
-  const [conv, state, conversas, lead] = await Promise.all([
+  const [conv, state, conversas, lead, allTags] = await Promise.all([
     getConversation(decoded),
     getConversationState(decoded),
     listConversations({}),
     getLead(decoded),
+    listTags(),
   ]);
+
+  const currentTags =
+    conversas.find((c) => c.phone === decoded)?.tags ?? [];
 
   return (
     <div className="space-y-3">
@@ -58,6 +63,8 @@ export default async function ConversaDetailPage({
             conv={conv}
             initialPaused={state.bot_paused}
             lead={lead}
+            allTags={allTags}
+            currentTags={currentTags}
           />
         )}
       </div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import type { ConversationDetail, LeadDetail } from "@/lib/types";
+import type { ConversationDetail, LeadDetail, Tag } from "@/lib/types";
 import { ConversaView } from "./conversa-view";
 import { LeadPanel } from "./lead-panel";
 
@@ -10,10 +10,14 @@ export function ConversaWorkspace({
   conv,
   initialPaused,
   lead,
+  allTags = [],
+  currentTags = [],
 }: {
   conv: ConversationDetail;
   initialPaused: boolean;
   lead: LeadDetail | null;
+  allTags?: Tag[];
+  currentTags?: Tag[];
 }) {
   const [showLead, setShowLead] = useState(true);
 
@@ -46,7 +50,7 @@ export function ConversaWorkspace({
       </div>
       {showLead ? (
         <aside className="hidden w-[300px] shrink-0 flex-col overflow-y-auto border-l border-zinc-200 lg:flex dark:border-zinc-800">
-          <LeadPanel lead={lead} />
+          <LeadPanel lead={lead} allTags={allTags} currentTags={currentTags} />
         </aside>
       ) : null}
     </>

@@ -9,6 +9,8 @@ Este guia assume que:
 
 ---
 
+> ⚠️ **OBSOLETO em parte (24/06):** o **worker Celery foi removido**. Os follow-ups (lembretes + resumo diário) rodam por **cron externo** (cron-job.org → `POST /internal/tick` a cada 1 min, header `X-Cron-Secret`=`CRON_SECRET`). **PULE a Etapa 3.4 (criar o service `worker`)** — não existe mais. O resto do guia (Supabase, Upstash, service `web`) segue válido.
+
 ## Arquitetura em produção
 
 ```

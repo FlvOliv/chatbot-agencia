@@ -310,6 +310,10 @@
 <body>
 <main>
 
+<div style="margin:16px 0;padding:14px 16px;border:1px solid #fcd34d;background:var(--doing-bg);border-radius:var(--radius);color:var(--doing)">
+  <strong>⚠️ Obsoleto em parte (24/06):</strong> o <strong>worker Celery foi removido</strong>. Os follow-ups (lembretes + resumo diário) rodam por <strong>cron externo</strong> (cron-job.org → <code>POST /internal/tick</code> a cada 1 min, header <code>X-Cron-Secret</code>=<code>CRON_SECRET</code>). <strong>Pule a ETAPA 4 (Service worker · Celery)</strong> — não existe mais. O resto do wizard segue válido.
+</div>
+
 <!-- ============ DOC HEADER ============ -->
 <div class="doc-header">
   <div class="eyebrow">Wizard interativo · Marca cada passo conforme avança</div>

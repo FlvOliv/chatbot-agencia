@@ -7,7 +7,7 @@ Atende clientes via WhatsApp, coleta informações de viagem e gera um briefing 
 - **Arquitetura multi-provider de IA** com switch dinâmico via `.env`:
   - Primário: **Google Gemini 2.5 Flash** (camada gratuita do AI Studio)
   - Stand-by: **Groq Llama 3.3 70B** (camada gratuita generosa — ativar com `AI_PRIMARY=groq` no `.env`)
-- Backend: **FastAPI** async · **PostgreSQL 16** · **Redis 7** · **Celery**
+- Backend: **FastAPI** async · **PostgreSQL 16** · **Redis 7** · follow-ups por **cron externo** (`POST /internal/tick`)
 - Persona da Malu definida em `app/prompts/malu_v4.md` — inclui regras anti-preço, anti-prompt-injection, filtro off-topic e tabela de temperatura do lead
 
 ---
@@ -139,15 +139,12 @@ Roda um diálogo simulado de 8 turnos usando o provider de IA ativo e imprime o 
 
 ---
 
-## Worker Celery
+## Follow-ups (cron, sem worker)
 
-```bash
-celery -A workers.tasks worker --loglevel=info --beat
-```
+Não há worker Celery. Um cron externo (ex.: cron-job.org, grátis) faz `POST /internal/tick` a cada 1 min com o header `X-Cron-Secret` (= `CRON_SECRET`). Cada batida:
 
-- `send_followup(phone)` — manda lembrete leve para clientes que pararam de responder
-- `send_reminder(phone, message)` — lembretes de inatividade encadeados (15min / 5h / 23h após a última resposta do cliente). Agendados automaticamente em `app/reminders.py` ao fim de cada turno e cancelados em `/sair` ou quando a Lu assume a conversa. Pulam o envio se a sessão Redis expirou ou se o estado já está `transferred`.
-- `daily_lead_report()` — roda às 8h diariamente; envia resumo dos leads do dia anterior para a Lu
+- dispara os **lembretes de inatividade** vencidos — agendados em `app/reminders.py` na tabela `reminders` (Postgres), 30 min após a última resposta da Malu se a coleta não terminou; cancelados em `/sair` ou quando a Lu assume.
+- roda o **resumo diário** dos leads para a Lu, 1×/dia a partir das 8h (`app/reports.py`).
 
 ---
 
@@ -166,10 +163,7 @@ celery -A workers.tasks worker --loglevel=info --beat
    ```
 7. Pegue a URL pública (`https://malu-XXX.up.railway.app`) e atualize o webhook na Meta Developer Console.
 
-Para o worker, crie um segundo **Service** no mesmo projeto apontando para o mesmo repo, com start command:
-```bash
-celery -A workers.tasks worker --loglevel=info --beat
-```
+Para os follow-ups, **não** crie um segundo service. Configure um **cron externo** (cron-job.org) com `POST https://SUA-URL.up.railway.app/internal/tick` a cada 1 min e o header `X-Cron-Secret` = `CRON_SECRET`.
 
 ---
 
@@ -186,8 +180,9 @@ chatbot-agencia/
 │   ├── whatsapp.py          # Cliente Meta Cloud API
 │   ├── ai.py                # Router multi-provider (Gemini/Groq)
 │   ├── briefing.py          # Parser de briefing + notificação Lu
-│   └── prompts/malu_v4.md   # System prompt da Malu (v4 com anti-injection)
-├── workers/tasks.py         # Celery (follow-up + relatório diário)
+│   ├── prompts/malu_v4.md   # System prompt da Malu (v4 com anti-injection)
+│   ├── reports.py           # resumo diário de leads (disparado pelo cron)
+│   └── api/tick.py          # POST /internal/tick (cron) → follow-ups + resumo
 ├── alembic/                 # Migrations
 ├── tests/                   # pytest (27 testes)
 ├── scripts/

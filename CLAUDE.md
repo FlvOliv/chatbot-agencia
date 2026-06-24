@@ -24,7 +24,7 @@ O projeto tem duas partes:
 | IA fallback | **Google Gemini** `gemini-2.5-flash` (fallback automático em `app/ai.py`) |
 | Sessão/histórico | **Redis** (asyncio) — em produção/dev usa **Upstash** (TLS `rediss://`) |
 | Banco | **PostgreSQL** (SQLAlchemy 2 async + Alembic) — usa **Supabase** |
-| Fila | **Celery 5** + Redis (lembretes de inatividade) |
+| Follow-ups | **Cron externo** (cron-job.org → `POST /internal/tick` 1×/min) dispara lembretes + resumo diário — agendados no **Postgres** (tabela `reminders`) |
 | WhatsApp | **Meta WhatsApp Cloud API** (oficial — sem risco de ban) |
 | Painel | **Next.js 16** (React, TypeScript) em `crm/` |
 | HTTP | **httpx** async · validação **pydantic 2** · server **uvicorn** |
@@ -44,16 +44,17 @@ app/
   briefing.py      # Extrai briefing, salva lead, notifica Luciana
   clientes.py      # get_or_create_cliente, nome preferido
   reservas.py      # checagem de reserva ativa
-  reminders.py     # agenda/cancela lembretes (Celery)
+  reminders.py     # agenda/cancela lembretes no Postgres + run_due_reminders (cron)
   commands.py      # comandos (/sair), intents (1/2), respostas fixas
   models.py        # ORM: Lead, Conversation, Cliente, Reserva
   database.py      # engine async + SessionLocal + get_session
   config.py        # Pydantic Settings (lê .env) — fonte única de config
-  api/             # Rotas REST do painel (todas /api/*, exigem X-API-Key)
+  api/             # Rotas REST do painel (/api/*, X-API-Key) + cron (/internal)
     leads.py · conversations.py · metrics.py · reservas.py · auth.py · schemas.py
+    tick.py        # POST /internal/tick (cron) → run_due_reminders + resumo diário
   prompts/malu_v4.md   # System prompt da Malu (NÃO EDITAR sem instrução)
-workers/tasks.py   # Celery (lembretes + relatório diário)
-alembic/versions/  # Migrations (0001_initial, 0002_clientes, 0003_reservas)
+  reports.py       # conteúdo do resumo diário de leads (disparado pelo cron)
+alembic/versions/  # Migrations (0001_initial … 0008_reminders)
 tests/             # pytest (test_api, test_commands, test_insights, test_reminders, ...)
 scripts/
   demo_chat.py     # Chat interativo no terminal com a Malu (sem WhatsApp)
@@ -88,8 +89,9 @@ python -m pytest tests/ -q                 # testes (135 verdes)
 python scripts/sim_cliente.py              # popula o banco simulando um cliente
 ngrok http 8000                            # expõe o webhook (precisa authtoken)
 
-# --- worker de lembretes ---
-celery -A workers.tasks worker --beat --loglevel=info
+# --- follow-ups (lembretes + resumo diário) ---
+# Sem worker: um cron externo (cron-job.org) faz POST /internal/tick a cada
+# 1 min com o header X-Cron-Secret. Em dev, dá pra simular batendo na rota.
 
 # --- painel CRM (em crm/) ---
 npm install

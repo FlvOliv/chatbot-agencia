@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bot,
@@ -96,8 +96,42 @@ export function ConversaView({
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [messages, setMessages] = useState(conv.messages);
 
   const name = conv.customer_name?.trim() || formatPhone(conv.phone);
+
+  // Thread "ao vivo" sem recarregar a página: as mensagens ficam em estado e são
+  // atualizadas por um poll LEVE (~4s) só desta conversa (sidebar/lead seguem no
+  // refresh lento da página). Erro de rede mantém o que está na tela.
+  const refreshMessages = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/panel/conversation/${encodeURIComponent(conv.phone)}`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      // Só atualiza com lista não-vazia — evita apagar a thread por um glitch.
+      if (Array.isArray(data?.messages) && data.messages.length > 0)
+        setMessages(data.messages);
+    } catch {
+      // mantém as mensagens atuais (sem piscar)
+    }
+  }, [conv.phone]);
+
+  // Trocar de conversa reinicia a thread com o que veio do servidor (SSR).
+  useEffect(() => {
+    setMessages(conv.messages);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conv.phone]);
+
+  // Poll só da thread, quando a aba está visível.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") refreshMessages();
+    }, 4000);
+    return () => clearInterval(id);
+  }, [refreshMessages]);
 
   function handleTakeover() {
     setError(null);
@@ -140,6 +174,7 @@ export function ConversaView({
               "Mensagem registrada, mas não foi entregue (número ainda não configurado).",
           );
         }
+        refreshMessages();
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erro ao enviar.");
@@ -245,12 +280,12 @@ export function ConversaView({
 
       {/* Thread */}
       <div className="flex-1 space-y-2 overflow-y-auto bg-zinc-50 px-4 py-4 dark:bg-zinc-900/40">
-        {conv.messages.length === 0 ? (
+        {messages.length === 0 ? (
           <p className="py-6 text-center text-sm text-zinc-500">
             Sem mensagens nesta conversa.
           </p>
         ) : (
-          conv.messages.map((m) => {
+          messages.map((m) => {
             const isClient = m.role === "user";
             const isHuman = m.model_used === "human";
             const dk = dayKey(m.created_at);
@@ -345,6 +380,7 @@ export function ConversaView({
             phone={conv.phone}
             onSent={() => {
               setPaused(true);
+              refreshMessages();
               router.refresh();
             }}
             onError={setError}

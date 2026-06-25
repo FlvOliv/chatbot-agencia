@@ -35,7 +35,9 @@ export default async function ConversaDetailPage({
 
   return (
     <div className="space-y-3">
-      <AutoRefresh intervalMs={6000} />
+      {/* Thread se atualiza sozinha (poll leve ~4s no conversa-view); aqui o
+          refresh lento só mantém a sidebar/lead frescas sem pesar. */}
+      <AutoRefresh intervalMs={30000} />
 
       <Link
         href="/conversas"

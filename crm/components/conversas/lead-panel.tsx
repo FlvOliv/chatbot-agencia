@@ -74,7 +74,9 @@ export function LeadPanel({ lead: detail }: { lead: LeadDetail | null }) {
 
   function copyBriefing() {
     if (!lead.briefing_md) return;
-    navigator.clipboard.writeText(lead.briefing_md).then(() => {
+    // WhatsApp usa * simples pra negrito; ** (markdown) aparece literal ao colar.
+    const text = lead.briefing_md.replace(/\*\*/g, "*");
+    navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });

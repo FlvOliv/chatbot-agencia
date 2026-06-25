@@ -478,6 +478,12 @@ async def _process_text_message(
         # finalização de cotação, não só quando o modelo não escreve nada.
         customer_reply = _build_closing_reply(numero)
 
+        # Coleta concluída → Malu se CALA e o lead fica aguardando a Lu cotar.
+        # Sem isso, cada "ok/obrigado" do cliente faz o modelo re-emitir o
+        # briefing → lead + protocolo DUPLICADOS a cada mensagem (bug grave).
+        await set_state(phone, STATE_TRANSFERRED)
+        await cancel_reminders(phone)
+
     history.append({"role": "assistant", "content": customer_reply})
     await save_history(phone, history)
 

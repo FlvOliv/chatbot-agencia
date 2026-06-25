@@ -222,6 +222,18 @@ def test_split_reply_without_block() -> None:
     assert block is None
 
 
+def test_split_reply_ignores_empty_briefing_header() -> None:
+    # Modelo escreveu o header no meio da frase, sem os campos → NÃO finaliza
+    # (senão vira lead/protocolo espúrio) e o header não vaza pro cliente.
+    reply = (
+        "Em breve ela entra em contato com o\n\n"
+        "## Resumo da Solicitação de Cotação\n"
+    )
+    customer, block = split_reply_and_briefing(reply)
+    assert block is None
+    assert "## Resumo" not in customer
+
+
 def test_split_transfer_detects_marker() -> None:
     reply = "Claro! Já vou chamar a Lu pra te ajudar com isso 🙌\n\n## TRANSFERIR"
     customer, wants = split_reply_and_transfer(reply)

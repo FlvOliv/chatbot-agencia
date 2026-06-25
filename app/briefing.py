@@ -237,6 +237,13 @@ def split_reply_and_briefing(reply: str) -> tuple[str, str | None]:
         return reply, None
     before = reply[: m.start()].strip()
     block = m.group(1).strip()
+    # "## Resumo" só com o cabeçalho, SEM os campos abaixo = hiccup do modelo
+    # (escreveu o header no meio da frase, sem concluir). NÃO finaliza por isso
+    # (evita lead/protocolo espúrio) — devolve só o texto do cliente.
+    parts = block.split("\n", 1)
+    body = parts[1].strip() if len(parts) > 1 else ""
+    if not body:
+        return before, None
     return before, block
 
 
@@ -343,11 +350,14 @@ async def notify_luciana(
         else "📋 *Novo lead — Malu*"
     )
 
+    # WhatsApp usa * simples pra negrito; ** (markdown) aparece literal. O
+    # briefing é gerado em markdown (pro painel) → converte aqui pro envio à Lu.
+    briefing_wpp = briefing.replace("**", "*")
     body = (
         f"{titulo}\n\n"
         f"📱 Cliente: {display}\n"
         f"🌡 Temperatura: {temp}\n\n"
-        f"{briefing}\n\n"
+        f"{briefing_wpp}\n\n"
         f"👉 Responder no painel: {_panel_link(customer_phone)}"
     )
 

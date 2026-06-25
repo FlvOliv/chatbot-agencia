@@ -18,9 +18,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import google.generativeai as genai
 import httpx
@@ -90,6 +92,33 @@ def _load_system_prompt() -> str:
     return PROMPT_PATH.read_text(encoding="utf-8")
 
 
+_WEEKDAYS_PT = (
+    "segunda-feira",
+    "terça-feira",
+    "quarta-feira",
+    "quinta-feira",
+    "sexta-feira",
+    "sábado",
+    "domingo",
+)
+
+
+def _today_block() -> str:
+    """Âncora temporal — injeta a data de hoje pro modelo resolver datas
+    relativas ('amanhã', 'semana que vem') sem inventar nem vazar placeholder."""
+    now = datetime.now(ZoneInfo(settings.callback_timezone))
+    amanha = now + timedelta(days=1)
+    dia = _WEEKDAYS_PT[now.weekday()]
+    return (
+        "\n\n## Data de hoje (âncora — use SEMPRE)\n"
+        f"Hoje é **{dia}, {now:%d/%m/%Y}** (horário de Brasília). "
+        f'"Amanhã" = **{amanha:%d/%m/%Y}**. '
+        "Resolva qualquer data relativa a partir de hoje; se o cliente disser só "
+        "dia/mês, assuma a próxima ocorrência no calendário. NUNCA invente data "
+        'nem escreva placeholder do tipo "[data de amanhã]" — calcule.'
+    )
+
+
 def _build_system_prompt(customer_context: dict[str, Any] | None) -> str:
     """Monta o system prompt da chamada atual — base + contexto dinâmico.
 
@@ -99,11 +128,9 @@ def _build_system_prompt(customer_context: dict[str, Any] | None) -> str:
         - "from_audio": bool → True se a mensagem veio de um áudio transcrito
     """
     base = _load_system_prompt()
-    if not customer_context:
-        return base
+    extras: list[str] = [_today_block()]
 
-    extras: list[str] = []
-    name = customer_context.get("name")
+    name = customer_context.get("name") if customer_context else None
     if name:
         is_first = bool(customer_context.get("is_first_turn"))
         if is_first:
@@ -122,7 +149,7 @@ def _build_system_prompt(customer_context: dict[str, Any] | None) -> str:
                 f"nome quando fizer sentido no fluxo natural."
             )
 
-    if customer_context.get("from_audio"):
+    if customer_context and customer_context.get("from_audio"):
         extras.append(
             "\n\n## Esta mensagem veio de um ÁUDIO transcrito\n"
             "O cliente mandou um áudio que foi transcrito automaticamente — pode "
@@ -134,8 +161,6 @@ def _build_system_prompt(customer_context: dict[str, Any] | None) -> str:
             "repetir — por escrito ou em outro áudio."
         )
 
-    if not extras:
-        return base
     return base + "".join(extras)
 
 

@@ -246,6 +246,22 @@ def test_build_system_prompt_without_audio_has_no_audio_block() -> None:
     assert "transcrito automaticamente" not in sp
 
 
+def test_build_system_prompt_injects_today_date() -> None:
+    """A data de hoje é injetada SEMPRE (âncora), mesmo sem contexto algum."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.config import settings
+
+    hoje = datetime.now(ZoneInfo(settings.callback_timezone)).strftime("%d/%m/%Y")
+    sp = ai._build_system_prompt(None)
+    assert "Data de hoje" in sp
+    assert hoje in sp
+    # E continua presente quando há contexto de cliente
+    sp2 = ai._build_system_prompt({"name": "Ana", "is_first_turn": False})
+    assert hoje in sp2
+
+
 # ---------------------------------------------------------------------------
 # Helpers — model_name, fallback resolution
 # ---------------------------------------------------------------------------

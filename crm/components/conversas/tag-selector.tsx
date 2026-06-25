@@ -10,6 +10,7 @@ import {
   createTag,
   deleteTag,
 } from "@/lib/actions";
+import { textOn } from "@/lib/color";
 
 export function TagSelector({
   phone,
@@ -27,6 +28,7 @@ export function TagSelector({
   const [newColor, setNewColor] = useState("#6b7280");
   const [creating, setCreating] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -34,6 +36,7 @@ export function TagSelector({
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
         setCreating(false);
+        setQuery("");
       }
     }
     if (open) document.addEventListener("mousedown", handler);
@@ -42,6 +45,11 @@ export function TagSelector({
 
   const currentIds = new Set(tags.map((t) => t.id));
   const available = catalog.filter((t) => !currentIds.has(t.id));
+  const filteredAvailable = query.trim()
+    ? available.filter((t) =>
+        t.name.toLowerCase().includes(query.trim().toLowerCase()),
+      )
+    : available;
 
   async function handleAdd(tag: Tag) {
     setLoading(tag.id);
@@ -104,8 +112,8 @@ export function TagSelector({
         {tags.map((tag) => (
           <span
             key={tag.id}
-            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-white"
-            style={{ background: tag.color }}
+            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+            style={{ background: tag.color, color: textOn(tag.color) }}
           >
             {tag.name}
             <button
@@ -128,9 +136,21 @@ export function TagSelector({
 
       {open && (
         <div className="absolute left-0 top-full z-30 mt-1 w-56 rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-          {available.length > 0 ? (
+          {catalog.length > 6 && (
+            <div className="border-b border-zinc-100 p-1 dark:border-zinc-800">
+              <input
+                autoFocus
+                type="text"
+                placeholder="Buscar etiqueta…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="w-full rounded bg-transparent px-2 py-1 text-xs outline-none"
+              />
+            </div>
+          )}
+          {filteredAvailable.length > 0 ? (
             <ul className="max-h-44 overflow-y-auto p-1">
-              {available.map((tag) => (
+              {filteredAvailable.map((tag) => (
                 <li key={tag.id} className="group flex items-center">
                   <button
                     onClick={() => handleAdd(tag)}
@@ -159,7 +179,9 @@ export function TagSelector({
             <p className="px-3 py-2 text-xs text-zinc-400">
               {catalog.length === 0
                 ? "Nenhuma etiqueta criada ainda."
-                : "Todas as etiquetas já aplicadas."}
+                : query.trim()
+                  ? "Nada encontrado."
+                  : "Todas as etiquetas já aplicadas."}
             </p>
           )}
 

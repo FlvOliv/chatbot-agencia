@@ -8,6 +8,7 @@ import { formatPhone } from "@/lib/format";
 import type { ConversationSummary, Tag } from "@/lib/types";
 import { Avatar } from "./avatar";
 import { TempBadge } from "@/components/temp-badge";
+import { textOn } from "@/lib/color";
 
 type Tab = "todas" | "aguardando" | "quentes";
 
@@ -111,10 +112,10 @@ export function ConversationList({
                 setFilterTagId((prev) => (prev === tag.id ? null : tag.id))
               }
               className={cn(
-                "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium text-white transition-opacity",
+                "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium transition-opacity",
                 filterTagId === tag.id ? "opacity-100 ring-2 ring-offset-1 ring-zinc-400" : "opacity-70 hover:opacity-100",
               )}
-              style={{ background: tag.color }}
+              style={{ background: tag.color, color: textOn(tag.color) }}
             >
               {tag.name}
             </button>
@@ -168,7 +169,7 @@ export function ConversationList({
                       {c.lead_temp ? <TempBadge temp={c.lead_temp} /> : null}
                       {/* Mini-badges de etiqueta — só em telas lg+ */}
                       {(c.tags ?? []).length > 0 && (
-                        <span className="hidden lg:flex items-center gap-1">
+                        <span className="flex items-center gap-1">
                           {(c.tags ?? []).slice(0, 3).map((tag) => (
                             <span
                               key={tag.id}

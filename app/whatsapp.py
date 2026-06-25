@@ -128,46 +128,40 @@ async def upload_media(
 
 
 async def send_audio(to: str, media_id: str, voice: bool = True) -> bool:
-    """Envia áudio pelo Cloud API (passo 2). Com `voice=True` vira nota de voz.
+    """Envia áudio pelo Cloud API (passo 2). `voice=True` → nota de voz (OGG/Opus).
 
-    Defensivo: se a Meta recusar a flag `voice` (versão/compat), reenvia UMA vez
-    sem ela — vira anexo de áudio comum, mas ainda toca pro cliente.
+    NÃO faz retry interno: se falhar (ex.: a Meta recusa `voice:true`), devolve
+    False e o CHAMADOR decide o fallback. Isso importa porque OGG/Opus como anexo
+    comum (voice=false) NÃO toca no iPhone — o fallback certo é mandar o MP3, não
+    reenviar o mesmo OGG sem a flag.
     """
-
-    def _payload(with_voice: bool) -> dict[str, Any]:
-        audio: dict[str, Any] = {"id": media_id}
-        if with_voice:
-            audio["voice"] = True
-        return {
-            "messaging_product": "whatsapp",
-            "recipient_type": "individual",
-            "to": to,
-            "type": "audio",
-            "audio": audio,
-        }
+    audio: dict[str, Any] = {"id": media_id}
+    if voice:
+        audio["voice"] = True
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "audio",
+        "audio": audio,
+    }
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
-                _audio_messages_url(), headers=_headers(), json=_payload(voice)
+                _audio_messages_url(), headers=_headers(), json=payload
             )
-            if resp.status_code >= 400 and voice:
-                logger.warning(
-                    "send_audio voice=true recusado (status=%s) — retry sem voice. body=%s",
-                    resp.status_code,
-                    resp.text[:300],
-                )
-                resp = await client.post(
-                    _audio_messages_url(), headers=_headers(), json=_payload(False)
-                )
-            if resp.status_code >= 400:
-                logger.error(
-                    "whatsapp send_audio failed status=%s body=%s",
-                    resp.status_code,
-                    resp.text,
-                )
-                return False
-        logger.info("whatsapp send_audio OK to=%s media_id=%s", to, media_id)
+        if resp.status_code >= 400:
+            logger.warning(
+                "whatsapp send_audio falhou status=%s voice=%s body=%s",
+                resp.status_code,
+                voice,
+                resp.text[:300],
+            )
+            return False
+        logger.info(
+            "whatsapp send_audio OK to=%s media_id=%s voice=%s", to, media_id, voice
+        )
         return True
     except httpx.HTTPError:
         logger.exception("whatsapp send_audio HTTP error for %s", to)

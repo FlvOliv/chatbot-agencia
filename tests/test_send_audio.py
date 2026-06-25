@@ -88,21 +88,21 @@ async def test_send_audio_voice_true_ok() -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_audio_fallback_without_voice() -> None:
-    # 1ª tentativa (voice=true) recusada → reenvia sem voice e sucede
-    _FakeClient.responses = [_Resp(400, text="voice not supported"), _Resp(200, {})]
-    ok = await whatsapp.send_audio("5511999998888", "MEDIA123")
-
-    assert ok is True
-    assert len(_FakeClient.posts) == 2
-    assert _FakeClient.posts[0]["json"]["audio"] == {"id": "MEDIA123", "voice": True}
-    assert _FakeClient.posts[1]["json"]["audio"] == {"id": "MEDIA123"}
-
-
-@pytest.mark.asyncio
-async def test_send_audio_both_fail_returns_false() -> None:
-    _FakeClient.responses = [_Resp(400, text="err1"), _Resp(400, text="err2")]
+async def test_send_audio_voice_refused_returns_false_no_retry() -> None:
+    # voice=true recusado → NÃO faz retry interno (o caller decide o fallback MP3)
+    _FakeClient.responses = [_Resp(400, text="voice not supported")]
     ok = await whatsapp.send_audio("5511999998888", "MEDIA123")
 
     assert ok is False
-    assert len(_FakeClient.posts) == 2
+    assert len(_FakeClient.posts) == 1  # uma tentativa só, sem retry de OGG
+
+
+@pytest.mark.asyncio
+async def test_send_audio_voice_false_sends_plain_audio() -> None:
+    # voice=false (fallback MP3) → payload de áudio comum, sem a flag voice
+    _FakeClient.responses = [_Resp(200, {})]
+    ok = await whatsapp.send_audio("5511999998888", "MP3MEDIA", voice=False)
+
+    assert ok is True
+    assert len(_FakeClient.posts) == 1
+    assert _FakeClient.posts[0]["json"]["audio"] == {"id": "MP3MEDIA"}

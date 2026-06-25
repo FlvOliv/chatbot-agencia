@@ -319,20 +319,24 @@ async def human_reply_audio(
     )
     await db.commit()
 
-    # Envia o OGG/Opus pelo WhatsApp (2 passos: upload → send)
+    # Envia pelo WhatsApp. 1ª tentativa: NOTA DE VOZ (OGG/Opus + voice:true). Se a
+    # Meta recusar o voice:true, o OGG vira anexo que NÃO toca no iPhone — então o
+    # fallback manda o MP3 como áudio comum (toca em qualquer cliente, incl. iOS).
     sent = False
     error: str | None = None
-    if not ogg:
-        error = "Não consegui converter o áudio (ffmpeg). Veja os logs."
-    else:
-        try:
-            media_id = await upload_media(ogg, "audio/ogg", "nota.ogg")
-            if media_id:
-                sent = await send_audio(phone, media_id)
-            if not sent:
-                error = "Meta recusou o envio do áudio (número/permissão). Veja os logs."
-        except Exception as exc:  # noqa: BLE001
-            error = f"Falha no envio do áudio: {exc}"
+    try:
+        if ogg:
+            ogg_id = await upload_media(ogg, "audio/ogg", "nota.ogg")
+            if ogg_id:
+                sent = await send_audio(phone, ogg_id, voice=True)
+        if not sent and mp3:
+            mp3_id = await upload_media(mp3, "audio/mpeg", "nota.mp3")
+            if mp3_id:
+                sent = await send_audio(phone, mp3_id, voice=False)
+        if not sent:
+            error = "Não consegui enviar o áudio (conversão/Meta). Veja os logs."
+    except Exception as exc:  # noqa: BLE001
+        error = f"Falha no envio do áudio: {exc}"
 
     return ReplyOut(phone=phone, sent=sent, error=error)
 

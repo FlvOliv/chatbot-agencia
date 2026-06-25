@@ -66,6 +66,14 @@ export async function releaseConversation(
   return r;
 }
 
+/** Apaga o log da conversa + limpa a memória (Redis) do número. Faxina de
+ *  testes: some do painel e a Malu trata a próxima msg como nova. Não toca em
+ *  leads/clientes. */
+export async function deleteConversation(phone: string): Promise<void> {
+  await deleteApi(`/conversations/${encodeURIComponent(phone)}`);
+  revalidatePath("/conversas");
+}
+
 export async function replyConversation(
   phone: string,
   text: string,

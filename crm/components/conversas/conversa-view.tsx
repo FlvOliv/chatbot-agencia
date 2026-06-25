@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   PanelRightClose,
   PanelRightOpen,
+  Trash2,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -19,6 +20,7 @@ import { AudioMessage } from "./audio-message";
 import { AudioRecorder } from "./audio-recorder";
 import { TagSelector } from "./tag-selector";
 import {
+  deleteConversation,
   releaseConversation,
   replyConversation,
   takeoverConversation,
@@ -145,6 +147,24 @@ export function ConversaView({
     });
   }
 
+  function handleDelete() {
+    if (
+      !window.confirm(
+        `Excluir a conversa com ${name}? As mensagens somem do painel e a Malu trata a próxima mensagem como NOVA. Não afeta leads. Ação irreversível.`,
+      )
+    )
+      return;
+    setError(null);
+    startTransition(async () => {
+      try {
+        await deleteConversation(conv.phone);
+        router.push("/conversas");
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Erro ao excluir.");
+      }
+    });
+  }
+
   let lastDay = "";
 
   return (
@@ -188,6 +208,15 @@ export function ConversaView({
             <UserCheck className="size-4" /> Assumir
           </button>
         )}
+        <button
+          onClick={handleDelete}
+          disabled={pending}
+          aria-label="Excluir conversa"
+          title="Excluir conversa (faxina de teste — não afeta leads)"
+          className="grid size-9 shrink-0 place-items-center rounded-lg text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950/40"
+        >
+          <Trash2 className="size-4" />
+        </button>
         {onToggleLead ? (
           <button
             onClick={onToggleLead}

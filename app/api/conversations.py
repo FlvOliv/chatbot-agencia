@@ -6,7 +6,7 @@ import asyncio
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pydantic import BaseModel, Field
@@ -19,6 +19,7 @@ from app.models import Cliente, ClienteTag, Conversation, Lead, Tag
 from app.storage import signed_url, upload_audio
 from app.session import (
     STATE_TRANSFERRED,
+    clear_history,
     clear_state,
     get_state,
     get_states,
@@ -153,13 +154,16 @@ async def get_conversation(
     db: AsyncSession = Depends(get_session),
 ) -> ConversationDetail:
     """Histórico completo (ou últimas N mensagens) de uma conversa."""
+    # Pega as ÚLTIMAS `limit` mensagens (DESC + limit) e reverte pra exibir em
+    # ordem cronológica. Antes era ASC+limit → travava nas 100 mais ANTIGAS, e a
+    # conversa "congelava" numa msg velha quando passava do teto.
     rows = await db.execute(
         select(Conversation)
         .where(Conversation.phone == phone)
-        .order_by(Conversation.created_at.asc())
+        .order_by(Conversation.created_at.desc())
         .limit(limit)
     )
-    messages = list(rows.scalars().all())
+    messages = list(reversed(rows.scalars().all()))
     if not messages:
         raise HTTPException(status_code=404, detail="conversa não encontrada")
 
@@ -179,6 +183,24 @@ async def get_conversation(
         customer_name=cliente.display_name if cliente else None,
         messages=out,
     )
+
+
+@router.delete("/{phone}", status_code=204)
+async def delete_conversation(
+    phone: str,
+    db: AsyncSession = Depends(get_session),
+) -> Response:
+    """Apaga o LOG de mensagens da conversa + limpa a memória (Redis) do número.
+
+    Faxina de testes: a conversa some do painel e a Malu trata a próxima
+    mensagem como NOVA (sem interferência das antigas). NÃO mexe em
+    leads/clientes — esses têm gestão própria.
+    """
+    await db.execute(delete(Conversation).where(Conversation.phone == phone))
+    await db.commit()
+    await clear_history(phone)
+    await clear_state(phone)
+    return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------------

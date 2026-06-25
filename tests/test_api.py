@@ -170,6 +170,39 @@ def test_list_conversations_rejects_bad_tag_id(
     assert r.status_code == 422
 
 
+@pytest.mark.asyncio
+async def test_delete_conversation_clears_log_and_memory() -> None:
+    """delete_conversation apaga o log (DB) e limpa memória + estado (Redis)."""
+    from app.api.conversations import delete_conversation
+    from app.session import (
+        STATE_TRANSFERRED,
+        get_history,
+        get_states,
+        save_history,
+        set_state,
+    )
+
+    phone = "5511999990000"
+    await save_history(phone, [{"role": "user", "content": "teste antigo"}])
+    await set_state(phone, STATE_TRANSFERRED)
+
+    flags = {"deleted": False, "committed": False}
+
+    class _DB:
+        async def execute(self, *a, **k):  # noqa: ANN001, ANN002, ANN003, ARG002
+            flags["deleted"] = True
+
+        async def commit(self):  # noqa: ANN001
+            flags["committed"] = True
+
+    resp = await delete_conversation(phone, _DB())
+
+    assert resp.status_code == 204
+    assert flags["deleted"] and flags["committed"]
+    assert await get_history(phone) == []  # memória limpa
+    assert (await get_states([phone])).get(phone) is None  # estado limpo
+
+
 def test_conversation_detail_includes_audio_url(monkeypatch, auth_headers) -> None:
     """Mensagem de voz (media_path) → a rota devolve audio_url (link assinado)."""
     import uuid as _uuid

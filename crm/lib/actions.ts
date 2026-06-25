@@ -74,6 +74,25 @@ export async function deleteConversation(phone: string): Promise<void> {
   revalidatePath("/conversas");
 }
 
+/** Cria um lead manualmente pelo painel. Retorna o numero gerado (#1001...). */
+export async function createLead(input: {
+  phone: string;
+  name?: string;
+  destination?: string;
+  travel_type?: string;
+  lead_temp?: string;
+}): Promise<{ numero: number | null }> {
+  const lead = await postApi<{ numero: number | null }>("/leads", input);
+  revalidatePath("/leads");
+  return lead;
+}
+
+/** Exclui um lead pelo numero. Não apaga conversas nem o cliente. */
+export async function deleteLead(numero: number): Promise<void> {
+  await deleteApi(`/leads/by-numero/${numero}`);
+  revalidatePath("/leads");
+}
+
 export async function replyConversation(
   phone: string,
   text: string,

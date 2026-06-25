@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, or_, select
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import require_api_key
 from app.api.schemas import (
     ClienteOut,
     LeadDetail,
+    LeadIn,
     LeadListItem,
     LeadListResponse,
     LeadOut,
@@ -115,3 +116,35 @@ async def get_lead_by_phone(
     if lead is None:
         raise HTTPException(status_code=404, detail="lead não encontrado")
     return await _build_lead_detail(lead, db)
+
+
+@router.post("", response_model=LeadOut, status_code=201)
+async def create_lead(
+    body: LeadIn,
+    db: AsyncSession = Depends(get_session),
+) -> Lead:
+    """Cria um lead/cotação manualmente pelo painel (numero gerado pela sequência)."""
+    lead = Lead(
+        phone=body.phone.strip(),
+        name=(body.name or None),
+        destination=(body.destination or None),
+        travel_type=(body.travel_type or None),
+        lead_temp=(body.lead_temp or None),
+    )
+    db.add(lead)
+    await db.commit()
+    await db.refresh(lead)
+    return lead
+
+
+@router.delete("/by-numero/{numero}", status_code=204)
+async def delete_lead(
+    numero: int,
+    db: AsyncSession = Depends(get_session),
+) -> Response:
+    """Exclui uma cotação pelo número. NÃO apaga conversas nem o cliente."""
+    result = await db.execute(delete(Lead).where(Lead.numero == numero))
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="cotação não encontrada")
+    await db.commit()
+    return Response(status_code=204)

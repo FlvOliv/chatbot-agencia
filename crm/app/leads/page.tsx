@@ -3,6 +3,7 @@ import { ChevronRight } from "lucide-react";
 import { listLeads } from "@/lib/api";
 import type { LeadTemp } from "@/lib/types";
 import { LeadsFilters } from "@/components/leads/leads-filters";
+import { NewLeadButton } from "@/components/leads/new-lead-button";
 import { LoadMore } from "@/components/leads/load-more";
 import { TempBadge } from "@/components/temp-badge";
 import { formatPhone, relativeFromNow } from "@/lib/format";
@@ -40,11 +41,14 @@ export default async function LeadsPage({
 
   return (
     <div className="space-y-4">
-      <header>
-        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Leads</h1>
-        <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
-          {total} {total === 1 ? "lead encontrado" : "leads encontrados"}
-        </p>
+      <header className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Leads</h1>
+          <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
+            {total} {total === 1 ? "lead encontrado" : "leads encontrados"}
+          </p>
+        </div>
+        <NewLeadButton />
       </header>
 
       <LeadsFilters />

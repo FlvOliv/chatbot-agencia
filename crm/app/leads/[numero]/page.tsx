@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import { getConversation, getLeadByNumero } from "@/lib/api";
 import { TempBadge } from "@/components/temp-badge";
 import { MessageBubble } from "@/components/leads/message-bubble";
+import { DeleteLeadButton } from "@/components/leads/delete-lead-button";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatPhone } from "@/lib/format";
 
@@ -64,6 +65,9 @@ export default async function LeadDetailPage({
             )}
           </p>
         </div>
+        {lead.numero && (
+          <DeleteLeadButton numero={lead.numero} label={display} />
+        )}
       </div>
 
       {/* Briefing */}

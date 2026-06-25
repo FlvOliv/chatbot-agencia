@@ -203,6 +203,88 @@ async def test_delete_conversation_clears_log_and_memory() -> None:
     assert (await get_states([phone])).get(phone) is None  # estado limpo
 
 
+def test_create_lead_rejects_bad_temp(client: TestClient, auth_headers) -> None:
+    """POST /api/leads com lead_temp inválido → 422 (antes de tocar o banco)."""
+    r = client.post(
+        "/api/leads",
+        headers=auth_headers,
+        json={"phone": "5511988887777", "lead_temp": "mornissimo"},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_lead_sets_fields() -> None:
+    """create_lead monta o Lead com os campos enviados (e aplica strip no phone)."""
+    from app.api.leads import create_lead
+    from app.api.schemas import LeadIn
+
+    added: dict = {}
+
+    class _DB:
+        def add(self, obj):  # noqa: ANN001
+            added["lead"] = obj
+
+        async def commit(self):  # noqa: ANN001
+            pass
+
+        async def refresh(self, obj):  # noqa: ANN001, ARG002
+            pass
+
+    lead = await create_lead(
+        LeadIn(phone=" 5511988887777 ", name="Maria", destination="Recife", lead_temp="quente"),
+        _DB(),
+    )
+    assert lead is added["lead"]
+    assert lead.phone == "5511988887777"
+    assert lead.name == "Maria"
+    assert lead.lead_temp == "quente"
+
+
+@pytest.mark.asyncio
+async def test_delete_lead_404_when_missing() -> None:
+    """delete_lead → 404 quando o número não existe."""
+    from fastapi import HTTPException
+
+    from app.api.leads import delete_lead
+
+    class _Res:
+        rowcount = 0
+
+    class _DB:
+        async def execute(self, *a, **k):  # noqa: ANN001, ANN002, ANN003, ARG002
+            return _Res()
+
+        async def commit(self):  # noqa: ANN001
+            pass
+
+    with pytest.raises(HTTPException) as exc:
+        await delete_lead(999999, _DB())
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_lead_204_when_found() -> None:
+    """delete_lead → 204 + commit quando o número existe."""
+    from app.api.leads import delete_lead
+
+    flags = {"committed": False}
+
+    class _Res:
+        rowcount = 1
+
+    class _DB:
+        async def execute(self, *a, **k):  # noqa: ANN001, ANN002, ANN003, ARG002
+            return _Res()
+
+        async def commit(self):  # noqa: ANN001
+            flags["committed"] = True
+
+    resp = await delete_lead(1001, _DB())
+    assert resp.status_code == 204
+    assert flags["committed"]
+
+
 def test_conversation_detail_includes_audio_url(monkeypatch, auth_headers) -> None:
     """Mensagem de voz (media_path) → a rota devolve audio_url (link assinado)."""
     import uuid as _uuid

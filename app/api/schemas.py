@@ -88,6 +88,18 @@ class LeadDetail(BaseModel):
     conversation_count: int = 0
 
 
+class LeadIn(BaseModel):
+    """Criação manual de lead pelo painel (numero vem da sequência)."""
+
+    phone: str = Field(min_length=5, max_length=20)
+    name: str | None = Field(default=None, max_length=120)
+    destination: str | None = Field(default=None, max_length=120)
+    travel_type: str | None = Field(default=None, max_length=120)
+    lead_temp: str | None = Field(
+        default=None, pattern=r"^(frio|morno|quente|urgente)$"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tags
 # ---------------------------------------------------------------------------

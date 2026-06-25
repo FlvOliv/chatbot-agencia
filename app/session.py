@@ -117,6 +117,19 @@ async def get_state(phone: str) -> str | None:
         return None
 
 
+async def get_states(phones: list[str]) -> dict[str, str | None]:
+    """Lê o estado de vários phones num round-trip (MGET — evita N+1)."""
+    if not phones:
+        return {}
+    client = get_redis()
+    try:
+        values = await client.mget([_state_key(p) for p in phones])
+    except Exception:
+        logger.exception("redis get_states failed")
+        return {}
+    return dict(zip(phones, values))
+
+
 async def set_state(phone: str, state: str) -> None:
     """Persiste o estado de fluxo (TTL igual ao da sessão)."""
     client = get_redis()

@@ -153,6 +153,23 @@ def test_routes_are_registered(client: TestClient) -> None:
     assert "/api/config" in paths
 
 
+def test_list_conversations_accepts_tag_id(client: TestClient, auth_headers) -> None:
+    """Aceita ?tag_id=<uuid> (filtro server-side) — 200 + lista (DB fake = vazia)."""
+    import uuid
+
+    r = client.get(f"/api/conversations?tag_id={uuid.uuid4()}", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+def test_list_conversations_rejects_bad_tag_id(
+    client: TestClient, auth_headers
+) -> None:
+    """tag_id que não é UUID → 422 (validação do FastAPI)."""
+    r = client.get("/api/conversations?tag_id=nao-e-uuid", headers=auth_headers)
+    assert r.status_code == 422
+
+
 def test_conversation_detail_includes_audio_url(monkeypatch, auth_headers) -> None:
     """Mensagem de voz (media_path) → a rota devolve audio_url (link assinado)."""
     import uuid as _uuid

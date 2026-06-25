@@ -21,6 +21,7 @@ from app.session import (
     STATE_TRANSFERRED,
     clear_state,
     get_state,
+    get_states,
     set_state,
 )
 from app.whatsapp import send_audio, send_message, upload_media
@@ -36,10 +37,17 @@ router = APIRouter(
 async def list_conversations(
     limit: int = Query(default=50, ge=1, le=200),
     q: str | None = Query(default=None, description="Busca: nome ou telefone"),
+    tag_id: uuid.UUID | None = Query(
+        default=None, description="Filtra pela etiqueta (server-side, antes do limit)"
+    ),
     db: AsyncSession = Depends(get_session),
 ) -> list[ConversationSummary]:
-    """Lista as conversas mais recentes (1 por phone), ordenadas pela última mensagem."""
-    # Subquery: última mensagem por phone
+    """Lista as conversas mais recentes (1 por phone), ordenadas pela última mensagem.
+
+    Preview, cliente, temperatura, tags e estado são carregados em LOTE (3 queries
+    + 1 MGET no Redis) — sem o N+1 de 1 conversa por 4 round-trips.
+    """
+    # Subquery: última mensagem por phone (last_at + contagem)
     last_msg_subq = (
         select(
             Conversation.phone,
@@ -69,55 +77,69 @@ async def list_conversations(
             )
         )
 
-    rows = await db.execute(
-        stmt.order_by(last_msg_subq.c.last_at.desc()).limit(limit)
-    )
-    rows_all = rows.all()
+    # Filtro por etiqueta — JOIN na associação ANTES do limit (filtro REAL no banco,
+    # não no top-50 já carregado). PK composta (phone, tag_id) → no máx. 1 match por
+    # phone, sem duplicar linhas.
+    if tag_id is not None:
+        stmt = stmt.join(
+            ClienteTag, ClienteTag.cliente_phone == last_msg_subq.c.phone
+        ).where(ClienteTag.tag_id == tag_id)
 
-    # Batch: carrega tags de todos os phones em 1 query (evita N+1)
+    rows_all = (
+        await db.execute(stmt.order_by(last_msg_subq.c.last_at.desc()).limit(limit))
+    ).all()
+    if not rows_all:
+        return []
+
+    phones = [r[0] for r in rows_all]
+
+    # Preview: última mensagem de cada phone (DISTINCT ON — 1 query pro lote todo)
+    content_rows = await db.execute(
+        select(Conversation.phone, Conversation.content)
+        .where(Conversation.phone.in_(phones))
+        .order_by(Conversation.phone, Conversation.created_at.desc())
+        .distinct(Conversation.phone)
+    )
+    content_by_phone = {p: c for p, c in content_rows.all()}
+
+    # Cliente de cada phone (1 query)
+    cliente_rows = await db.execute(select(Cliente).where(Cliente.phone.in_(phones)))
+    cliente_by_phone = {c.phone: c for c in cliente_rows.scalars().all()}
+
+    # Temperatura: a cotação MAIS RECENTE de cada phone (DISTINCT ON — 1 query)
+    lead_rows = await db.execute(
+        select(Lead.phone, Lead.lead_temp)
+        .where(Lead.phone.in_(phones))
+        .order_by(Lead.phone, Lead.created_at.desc())
+        .distinct(Lead.phone)
+    )
+    lead_temp_by_phone = {p: t for p, t in lead_rows.all()}
+
+    # Tags de cada phone (1 query — já era sem N+1)
     tags_by_phone: dict[str, list[Tag]] = {}
-    if rows_all:
-        phones_in_result = [r[0] for r in rows_all]
-        tag_rows = await db.execute(
-            select(ClienteTag.cliente_phone, Tag)
-            .join(Tag, Tag.id == ClienteTag.tag_id)
-            .where(ClienteTag.cliente_phone.in_(phones_in_result))
-        )
-        for cp, tag in tag_rows.all():
-            tags_by_phone.setdefault(cp, []).append(tag)
+    tag_rows = await db.execute(
+        select(ClienteTag.cliente_phone, Tag)
+        .join(Tag, Tag.id == ClienteTag.tag_id)
+        .where(ClienteTag.cliente_phone.in_(phones))
+    )
+    for cp, tag in tag_rows.all():
+        tags_by_phone.setdefault(cp, []).append(tag)
+
+    # Estado do bot via MGET — 1 round-trip Redis pro lote (antes: 1 por linha)
+    states = await get_states(phones)
 
     summaries: list[ConversationSummary] = []
     for phone, last_at, msg_count in rows_all:
-        # Preview da última mensagem
-        last_content_row = await db.execute(
-            select(Conversation.content)
-            .where(Conversation.phone == phone, Conversation.created_at == last_at)
-            .limit(1)
-        )
-        content = last_content_row.scalar_one_or_none() or ""
-        # Nome do cliente
-        cliente_row = await db.execute(select(Cliente).where(Cliente.phone == phone))
-        cliente = cliente_row.scalar_one_or_none()
-        # Temperatura do lead (se houver) — a cotação MAIS RECENTE do cliente
-        lead_row = await db.execute(
-            select(Lead.lead_temp)
-            .where(Lead.phone == phone)
-            .order_by(Lead.created_at.desc())
-            .limit(1)
-        )
-        lead_temp = lead_row.scalar_one_or_none()
-        # Estado do bot: "aguardando você" quando a Lu assumiu (transferred)
-        state = await get_state(phone)
-
+        cliente = cliente_by_phone.get(phone)
         summaries.append(
             ConversationSummary(
                 phone=phone,
                 customer_name=cliente.display_name if cliente else None,
                 last_message_at=last_at,
-                last_message_preview=(content or "")[:120],
+                last_message_preview=(content_by_phone.get(phone) or "")[:120],
                 message_count=int(msg_count or 0),
-                lead_temp=lead_temp,
-                bot_paused=(state == STATE_TRANSFERRED),
+                lead_temp=lead_temp_by_phone.get(phone),
+                bot_paused=(states.get(phone) == STATE_TRANSFERRED),
                 tags=[TagOut.model_validate(t) for t in tags_by_phone.get(phone, [])],
             )
         )

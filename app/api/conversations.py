@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
@@ -13,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.api.auth import require_api_key
 from app.api.schemas import ConversationDetail, ConversationSummary, MessageOut, TagOut
-from app.audioconv import transcode_to_mp3, transcode_to_ogg_opus
+from app.audioconv import transcode_to_mp3
 from app.database import get_session
 from app.models import Cliente, ClienteTag, Conversation, Lead, Tag
 from app.storage import signed_url, upload_audio
@@ -287,10 +286,11 @@ async def human_reply_audio(
 ) -> ReplyOut:
     """A Lu grava uma nota de voz no painel e manda pro cliente.
 
-    Recebe o áudio do navegador (webm/mp4), recodifica em paralelo pra OGG/Opus
-    (nota de voz no WhatsApp) e MP3 (player do painel, toca em qualquer
-    navegador). Guarda o MP3 no Storage, grava no histórico e envia o OGG pela
-    Cloud API. Garante o estado 'transferido' (bot calado).
+    Recebe o áudio do navegador (webm/mp4), recodifica pra MP3 e envia como áudio
+    pela Cloud API. MP3 (audio/mpeg) toca E baixa em QUALQUER WhatsApp, incl.
+    iPhone — diferente do OGG/Opus, que o iOS só reproduz como nota de voz "de
+    verdade" (e a Meta nem sempre aceita o voice:true). O mesmo MP3 serve o player
+    do painel. Garante o estado 'transferido' (bot calado).
     """
     raw = await audio.read()
     if not raw:
@@ -298,11 +298,8 @@ async def human_reply_audio(
 
     await set_state(phone, STATE_TRANSFERRED)
 
-    # 2 transcodes em paralelo: OGG (envio) + MP3 (painel)
-    ogg, mp3 = await asyncio.gather(
-        transcode_to_ogg_opus(raw),
-        transcode_to_mp3(raw),
-    )
+    # MP3 serve os dois: player do painel E envio pro cliente (toca/baixa em iOS).
+    mp3 = await transcode_to_mp3(raw)
 
     # Guarda o MP3 pro player do painel (best-effort — não bloqueia o envio)
     media_path = await upload_audio(phone, mp3, "audio/mpeg") if mp3 else None
@@ -319,24 +316,22 @@ async def human_reply_audio(
     )
     await db.commit()
 
-    # Envia pelo WhatsApp. 1ª tentativa: NOTA DE VOZ (OGG/Opus + voice:true). Se a
-    # Meta recusar o voice:true, o OGG vira anexo que NÃO toca no iPhone — então o
-    # fallback manda o MP3 como áudio comum (toca em qualquer cliente, incl. iOS).
+    # Envia o MP3 como áudio comum (type:audio, sem voice:true). Toca E baixa em
+    # qualquer cliente, incl. iPhone. A nota de voz OGG foi abandonada: o iOS não
+    # reproduzia quando a Meta recusava/entregava errado o voice:true.
     sent = False
     error: str | None = None
-    try:
-        if ogg:
-            ogg_id = await upload_media(ogg, "audio/ogg", "nota.ogg")
-            if ogg_id:
-                sent = await send_audio(phone, ogg_id, voice=True)
-        if not sent and mp3:
-            mp3_id = await upload_media(mp3, "audio/mpeg", "nota.mp3")
-            if mp3_id:
-                sent = await send_audio(phone, mp3_id, voice=False)
-        if not sent:
-            error = "Não consegui enviar o áudio (conversão/Meta). Veja os logs."
-    except Exception as exc:  # noqa: BLE001
-        error = f"Falha no envio do áudio: {exc}"
+    if not mp3:
+        error = "Não consegui converter o áudio (ffmpeg). Veja os logs."
+    else:
+        try:
+            media_id = await upload_media(mp3, "audio/mpeg", "nota.mp3")
+            if media_id:
+                sent = await send_audio(phone, media_id, voice=False)
+            if not sent:
+                error = "Meta recusou o envio do áudio. Veja os logs."
+        except Exception as exc:  # noqa: BLE001
+            error = f"Falha no envio do áudio: {exc}"
 
     return ReplyOut(phone=phone, sent=sent, error=error)
 

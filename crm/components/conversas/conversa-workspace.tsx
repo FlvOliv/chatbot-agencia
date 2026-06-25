@@ -46,11 +46,13 @@ export function ConversaWorkspace({
           initialPaused={initialPaused}
           onToggleLead={toggle}
           leadOpen={showLead}
+          allTags={allTags}
+          currentTags={currentTags}
         />
       </div>
       {showLead ? (
         <aside className="hidden w-[300px] shrink-0 flex-col overflow-y-auto border-l border-zinc-200 lg:flex dark:border-zinc-800">
-          <LeadPanel lead={lead} allTags={allTags} currentTags={currentTags} />
+          <LeadPanel lead={lead} />
         </aside>
       ) : null}
     </>

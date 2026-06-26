@@ -6,9 +6,13 @@ import pytest
 
 from app.briefing import (
     NAO_INFORMADO,
+    ask_missing_fields,
     extract_briefing,
     extract_customer_name,
+    gate_missing_fields,
+    indicacao_foi_perguntada,
     lead_columns_from_data,
+    normalize_lead_data,
     normalize_temp,
     parse_customer_whatsapp,
     parse_lead_temp,
@@ -292,6 +296,74 @@ def test_normalize_temp_variants() -> None:
     assert normalize_temp("muito urgente mesmo") == "urgente"
     assert normalize_temp("xyz") == "morno"
     assert normalize_temp(None) == "morno"
+
+
+# ---------------------------------------------------------------------------
+# Gate de completude — NÃO finaliza lead com coleta furada (mínimo crítico)
+# ---------------------------------------------------------------------------
+_INDIC_ASKED = [{"role": "assistant", "content": "Alguém indicou a Lu pra você?"}]
+
+
+def _complete_data() -> dict:
+    """Dados normalizados de uma coleta COMPLETA (passa no gate)."""
+    return normalize_lead_data(
+        {"data_ida": "26/07", "data_volta": "31/07", "qtd_adultos": "1"}
+    )
+
+
+def test_gate_blocks_vague_date() -> None:
+    # "mês que vem" → normalize marca pendente → gate barra a data de ida.
+    data = normalize_lead_data(
+        {"data_ida": "mês que vem", "data_volta": "31/07", "qtd_adultos": "1"}
+    )
+    missing = gate_missing_fields(data, _INDIC_ASKED)
+    assert "a data de ida" in missing
+
+
+def test_gate_blocks_missing_indicacao() -> None:
+    # Tudo concreto, mas a Malu NUNCA perguntou indicação → barra.
+    missing = gate_missing_fields(_complete_data(), history=[])
+    assert "__indicacao__" in missing
+
+
+def test_gate_blocks_missing_passengers() -> None:
+    data = normalize_lead_data({"data_ida": "26/07", "data_volta": "31/07"})
+    missing = gate_missing_fields(data, _INDIC_ASKED)
+    assert "quantas pessoas vão viajar" in missing
+
+
+def test_gate_passes_when_complete() -> None:
+    assert gate_missing_fields(_complete_data(), _INDIC_ASKED) == []
+
+
+def test_gate_accepts_one_way() -> None:
+    # Só ida → não exige data de volta (mesmo virando "pendente" no normalize).
+    data = normalize_lead_data(
+        {"data_ida": "26/07", "data_volta": "somente ida", "qtd_adultos": "1"}
+    )
+    missing = gate_missing_fields(data, _INDIC_ASKED)
+    assert "a data de volta (ou se é só ida)" not in missing
+    assert missing == []
+
+
+def test_indicacao_foi_perguntada() -> None:
+    assert indicacao_foi_perguntada(_INDIC_ASKED) is True
+    assert indicacao_foi_perguntada([{"role": "user", "content": "quem indicou?"}]) is False
+    assert indicacao_foi_perguntada([]) is False
+
+
+def test_ask_missing_fields_prioriza_dados_duros() -> None:
+    # Falta data + indicação → pede os dados duros primeiro, 1 emoji só.
+    msg = ask_missing_fields(["a data de ida", "__indicacao__"])
+    assert "data de ida" in msg
+    assert "indic" not in msg.lower()  # indicação fica pro próximo turno
+    assert msg.count("💛") == 1
+
+
+def test_ask_missing_fields_so_indicacao() -> None:
+    msg = ask_missing_fields(["__indicacao__"])
+    assert "indicou" in msg.lower()
+    assert msg.count("💛") == 1
 
 
 # ---------------------------------------------------------------------------

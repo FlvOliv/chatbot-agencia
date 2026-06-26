@@ -227,6 +227,80 @@ def lead_columns_from_data(data: dict) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Gate de completude (mínimo crítico) — NÃO fecha lead com coleta furada
+# ---------------------------------------------------------------------------
+# A finalização é decidida pelo LLM (ele escreve "## Resumo"); sob pressão do
+# cliente ("já finalizou?") ele encurta e fecha sem data concreta nem a pergunta
+# de indicação. Esta trava é DETERMINÍSTICA: reusa a detecção de "pendente" do
+# normalize_lead_data e barra o fecho até os campos obrigatórios virem.
+
+# Marcadores de viagem só-ida → não exige data de volta.
+_ONEWAY_RE = re.compile(
+    r"(somente ida|s[oó] ida|sem volta|só de ida|apenas ida|one[\s-]?way)",
+    re.IGNORECASE,
+)
+
+# A Malu perguntou sobre indicação? (qualquer turno dela com "indic...")
+_INDICACAO_ASKED_RE = re.compile(r"\bindic", re.IGNORECASE)
+
+
+def _pendente_ou_vazio(value: object) -> bool:
+    """True se o campo é nulo/placeholder OU ficou 'pendente' (data vaga ou
+    quantidade não-numérica marcada por normalize_lead_data)."""
+    v = _clean_value(value)
+    return v is None or v.startswith("pendente (")
+
+
+def indicacao_foi_perguntada(history: list[dict]) -> bool:
+    """True se a Malu já perguntou sobre indicação em algum turno dela.
+
+    A indicação é a ÚLTIMA pergunta antes de fechar; se nunca apareceu numa fala
+    da Malu, a coleta não terminou (independe de o cliente ter respondido).
+    """
+    for msg in history:
+        if msg.get("role") == "assistant" and _INDICACAO_ASKED_RE.search(
+            str(msg.get("content") or "")
+        ):
+            return True
+    return False
+
+
+def gate_missing_fields(data: dict, history: list[dict]) -> list[str]:
+    """Campos obrigatórios faltando que BARRAM o fecho do lead (mínimo crítico).
+
+    Exige: data de ida concreta; data de volta concreta (salvo só-ida); ao menos
+    1 adulto; e a pergunta de indicação já ter sido feita. Espera `data` JÁ
+    normalizado (normalize_lead_data). Lista vazia = pode finalizar. O item
+    "__indicacao__" é sentinela — `ask_missing_fields` usa frase própria pra ele.
+    """
+    missing: list[str] = []
+    if _pendente_ou_vazio(data.get("data_ida")):
+        missing.append("a data de ida")
+    volta = _clean_value(data.get("data_volta"))
+    is_oneway = volta is not None and _ONEWAY_RE.search(volta) is not None
+    if not is_oneway and _pendente_ou_vazio(data.get("data_volta")):
+        missing.append("a data de volta (ou se é só ida)")
+    adultos = _clean_value(data.get("qtd_adultos"))
+    if _pendente_ou_vazio(adultos) or adultos == "0":
+        missing.append("quantas pessoas vão viajar")
+    if not indicacao_foi_perguntada(history):
+        missing.append("__indicacao__")
+    return missing
+
+
+def ask_missing_fields(missing: list[str]) -> str:
+    """Frase determinística e calorosa pedindo o que falta antes de fechar.
+
+    Prioriza dados duros (datas/passageiros) num turno; a indicação fica pro
+    próximo (é a última pergunta). Um emoji só (regra de formatação)."""
+    hard = [m for m in missing if m != "__indicacao__"]
+    if hard:
+        pedido = hard[0] if len(hard) == 1 else ", ".join(hard[:-1]) + f" e {hard[-1]}"
+        return f"Antes de eu organizar tudo pra Lu, só me confirma {pedido}? 💛"
+    return "Ah, e pra fechar: alguém indicou a Lu pra você? Se sim, me conta quem foi. 💛"
+
+
 def split_reply_and_briefing(reply: str) -> tuple[str, str | None]:
     """Separa o que vai pro CLIENTE do bloco de briefing (sinal de fim de coleta).
 

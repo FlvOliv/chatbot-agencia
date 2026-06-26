@@ -26,7 +26,9 @@ from app.ai import extract_lead_data, route_and_ask
 from app.api import api_router
 from app.api import tick as tick_api
 from app.briefing import (
+    ask_missing_fields,
     extract_customer_name,
+    gate_missing_fields,
     lead_columns_from_data,
     normalize_lead_data,
     notify_luciana,
@@ -460,29 +462,43 @@ async def _process_text_message(
         await _transfer_to_lu(phone, user_text, customer_reply, customer_name)
         return
 
-    # Coleta concluída → fecha o lead ANTES de responder, pra já incluir o
-    # número de protocolo (#1001...) no fechamento que vai pro cliente.
+    # Coleta concluída (modelo emitiu "## Resumo") → ANTES de fechar, passa pelo
+    # GATE de completude: não fecha lead com data vaga, sem passageiros ou sem
+    # ter perguntado a indicação (mínimo crítico). Extrai/normaliza 1× e reusa.
     if briefing_block:
-        numero = await _finalize_lead(phone, history, briefing_block)
-        # Push web pra Lu (Fase 3) — fire-and-forget, não atrasa a resposta nem
-        # quebra o fluxo se o push estiver desligado/falhar.
-        titulo = f"Novo lead #{numero}" if numero is not None else "Novo lead"
-        asyncio.create_task(
-            send_push_to_all(
-                titulo,
-                f"{customer_name or 'Cliente'} — toque pra abrir a conversa",
-                url=f"/conversas/{phone}",
-            )
+        raw = await extract_lead_data(history)
+        lead_data = normalize_lead_data(raw) if raw else None
+        missing = (
+            gate_missing_fields(lead_data, history) if lead_data is not None else []
         )
-        # Fechamento controlado SEMPRE — CTA (Instagram + grupo VIP) em toda
-        # finalização de cotação, não só quando o modelo não escreve nada.
-        customer_reply = _build_closing_reply(numero)
+        if missing:
+            # Coleta furada → NÃO finaliza; pede o que falta e segue coletando.
+            # (briefing_block=None reaproveita o caminho normal: salva no
+            # histórico, agenda lembrete, e o gate re-checa no próximo turno.)
+            logger.info("gate barrou finalização p/ %s — faltam: %s", phone, missing)
+            customer_reply = ask_missing_fields(missing)
+            briefing_block = None
+        else:
+            numero = await _finalize_lead(phone, history, briefing_block, lead_data)
+            # Push web pra Lu (Fase 3) — fire-and-forget, não atrasa a resposta
+            # nem quebra o fluxo se o push estiver desligado/falhar.
+            titulo = f"Novo lead #{numero}" if numero is not None else "Novo lead"
+            asyncio.create_task(
+                send_push_to_all(
+                    titulo,
+                    f"{customer_name or 'Cliente'} — toque pra abrir a conversa",
+                    url=f"/conversas/{phone}",
+                )
+            )
+            # Fechamento controlado SEMPRE — CTA (Instagram + grupo VIP) em toda
+            # finalização de cotação, não só quando o modelo não escreve nada.
+            customer_reply = _build_closing_reply(numero)
 
-        # Coleta concluída → Malu se CALA e o lead fica aguardando a Lu cotar.
-        # Sem isso, cada "ok/obrigado" do cliente faz o modelo re-emitir o
-        # briefing → lead + protocolo DUPLICADOS a cada mensagem (bug grave).
-        await set_state(phone, STATE_TRANSFERRED)
-        await cancel_reminders(phone)
+            # Coleta concluída → Malu se CALA e o lead fica aguardando a Lu cotar.
+            # Sem isso, cada "ok/obrigado" do cliente faz o modelo re-emitir o
+            # briefing → lead + protocolo DUPLICADOS a cada mensagem (bug grave).
+            await set_state(phone, STATE_TRANSFERRED)
+            await cancel_reminders(phone)
 
     history.append({"role": "assistant", "content": customer_reply})
     await save_history(phone, history)
@@ -659,20 +675,19 @@ async def _finalize_lead(
     phone: str,
     history: list[dict[str, Any]],
     briefing_block: str,
+    data: dict[str, Any] | None,
 ) -> int | None:
-    """Fecha a coleta: extrai o lead em JSON, salva e notifica a Lu.
+    """Fecha a coleta: salva o lead (extração já validada pelo gate) e notifica.
 
-    Caminho principal = extração ESTRUTURADA (confiável, sem inventar campos).
-    Se a IA estiver fora do ar, cai pro parser regex sobre o bloco que a Malu
-    escreveu — rede de segurança pra nunca perder um lead.
+    `data` = extração ESTRUTURADA já normalizada (vinda do dispatch, que passou
+    pelo gate de completude). Se for None, a IA caiu na extração → cai pro parser
+    regex sobre o bloco que a Malu escreveu, rede de segurança pra nunca perder
+    um lead.
 
     Retorna o número de protocolo do lead (#1001...) pra entrar no fechamento,
     ou None se o save falhar.
     """
-    data = await extract_lead_data(history)
-
     if data:
-        data = normalize_lead_data(data)  # datas/qtd → tipo concreto ou "pendente"
         briefing_md = render_briefing(data, phone)
         cols = lead_columns_from_data(data)
         numero: int | None = None

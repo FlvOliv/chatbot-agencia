@@ -126,13 +126,20 @@ def parse_intent(text: str) -> str | None:
 
 # Mensagens fixas do fluxo de cliente novo/existente
 def intent_question(customer_name: str | None) -> str:
-    """Mensagem inicial pra cliente com reserva ativa."""
-    greeting = f"Olá, {customer_name}!" if customer_name else "Olá!"
+    """Saudação calorosa pra cliente recorrente com reserva ativa.
+
+    Este caminho NÃO passa pela IA (o pipeline responde direto pela template —
+    ver app/main.py, first turn + reserva ativa), então a acolhida tem que vir
+    pronta aqui. Mantém o calor da boas-vindas de cliente novo.
+    """
+    greeting = f"Olá, {customer_name}! 💛" if customer_name else "Olá! 💛"
     return (
-        f"{greeting} Sou a Malu, assistente da Lu Milhas & Viagens. "
-        f"Vi que você já tem uma reserva conosco. Como posso te ajudar agora?\n\n"
-        f"1️⃣ *Quero falar sobre minha reserva*\n"
-        f"2️⃣ *Quero planejar uma viagem nova*"
+        f"{greeting} Que bom te ver por aqui de novo! "
+        f"Eu sou a Malu, a assistente da Lu Milhas & Viagens. "
+        f"Vi que você já tem uma reserva com a gente — me conta, como "
+        f"posso te ajudar hoje?\n\n"
+        f"1️⃣ *Falar sobre a minha reserva*\n"
+        f"2️⃣ *Planejar uma nova viagem*"
     )
 
 

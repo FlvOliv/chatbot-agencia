@@ -145,6 +145,15 @@ def test_intent_question_without_name() -> None:
     assert "2️⃣" in msg
 
 
+def test_intent_question_is_warm() -> None:
+    # Caminho recorrente NÃO passa pela IA — a acolhida calorosa tem que vir
+    # pronta na template (regressão da saudação "seca").
+    msg = intent_question("Maria")
+    assert "💛" in msg
+    assert "Malu" in msg
+    assert "de novo" in msg.lower()
+
+
 def test_intent_unclear_reply_asks_again() -> None:
     msg = intent_unclear_reply()
     assert "1" in msg and "2" in msg

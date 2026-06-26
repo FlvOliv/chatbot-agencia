@@ -55,6 +55,7 @@ class LeadOut(BaseModel):
     name: str | None = None
     destination: str | None = None
     travel_type: str | None = None
+    indicado_por: str | None = None
     lead_temp: str | None = None
     briefing_md: str | None = None
     raw_data: dict = {}

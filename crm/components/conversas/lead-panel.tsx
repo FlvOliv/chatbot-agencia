@@ -69,6 +69,7 @@ export function LeadPanel({ lead: detail }: { lead: LeadDetail | null }) {
     ["Pagamento", val(raw, "forma_pagamento")],
     ["Prazo", val(raw, "prazo_decisao")],
     ["Motivo", val(raw, "motivo_viagem")],
+    ["Indicação", lead.indicado_por?.trim() || val(raw, "indicado_por")],
   ];
   const shown = fields.filter(([, v]) => v);
 

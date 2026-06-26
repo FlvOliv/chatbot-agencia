@@ -686,6 +686,7 @@ async def _finalize_lead(
                     name=cols["name"],
                     destination=cols["destination"],
                     travel_type=cols["travel_type"],
+                    indicado_por=cols["indicado_por"],
                     raw_data=data,
                 )
                 numero = lead.numero

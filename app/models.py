@@ -60,6 +60,9 @@ class Lead(Base):
     name: Mapped[str | None] = mapped_column(Text, nullable=True)
     destination: Mapped[str | None] = mapped_column(Text, nullable=True)
     travel_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Quem indicou o cliente (programa de indicação) — coluna própria pra a Lu
+    # creditar/relatar a indicação. NULL = sem indicação / não informado.
+    indicado_por: Mapped[str | None] = mapped_column(Text, nullable=True)
     lead_temp: Mapped[str | None] = mapped_column(String(16), nullable=True)
     briefing_md: Mapped[str | None] = mapped_column(Text, nullable=True)
     raw_data: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")

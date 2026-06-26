@@ -34,6 +34,7 @@ export interface LeadOut {
   name: string | null;
   destination: string | null;
   travel_type: string | null;
+  indicado_por: string | null;
   lead_temp: LeadTemp | null;
   briefing_md: string | null;
   raw_data: Record<string, unknown>;

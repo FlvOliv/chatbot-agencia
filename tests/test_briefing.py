@@ -194,8 +194,35 @@ def test_lead_columns_from_data_maps_fields() -> None:
         "name": "Ana",
         "destination": "Maceió",
         "travel_type": "Pacote completo",
+        "indicado_por": None,
         "lead_temp": "urgente",
     }
+
+
+def test_lead_columns_captura_indicado_por() -> None:
+    """Quem indicou vira coluna própria (programa de indicação)."""
+    cols = lead_columns_from_data({"indicado_por": "Tia Lu (5511988887777)"})
+    assert cols["indicado_por"] == "Tia Lu (5511988887777)"
+
+
+def test_render_briefing_inclui_indicado_por() -> None:
+    out = render_briefing({"indicado_por": "Maria Silva"})
+    assert "**Indicado por:** Maria Silva" in out
+    # sem indicação → cai pro "Não informado" como qualquer campo ausente
+    assert f"**Indicado por:** {NAO_INFORMADO}" in render_briefing({})
+
+
+@pytest.mark.asyncio
+async def test_save_lead_persiste_indicado_por() -> None:
+    db = _FakeLeadSession()
+    lead = await save_lead(
+        "5511999998888",
+        db,
+        briefing_md="b",
+        lead_temp="morno",
+        indicado_por="João",
+    )
+    assert lead.indicado_por == "João"
 
 
 def test_lead_columns_nulls_become_none() -> None:

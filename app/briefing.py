@@ -99,7 +99,7 @@ BRIEFING_FIELDS: list[tuple[str, str]] = [
     ("orcamento", "Orçamento aproximado"),
     ("motivo_viagem", "Motivo da viagem"),
     ("prazo_decisao", "Prazo de decisão"),
-    ("veio_indicacao", "Veio de indicação?"),
+    ("indicado_por", "Indicado por"),
     ("ja_viajou", "Já viajou com a Lu Milhas?"),
     ("pendencias", "Pendências para confirmar"),
     ("observacoes", "Observações importantes"),
@@ -220,6 +220,9 @@ def lead_columns_from_data(data: dict) -> dict:
         "name": _clean_value(data.get("nome_cliente")),
         "destination": _clean_value(data.get("destino")),
         "travel_type": _clean_value(data.get("tipo_atendimento")),
+        # Quem indicou o cliente (programa de indicação) — coluna própria pra
+        # a Lu creditar/relatar, não só texto solto no briefing.
+        "indicado_por": _clean_value(data.get("indicado_por")),
         "lead_temp": normalize_temp(data.get(TEMPERATURA_KEY)),
     }
 
@@ -461,6 +464,7 @@ async def save_lead(
     name: str | None = None,
     destination: str | None = None,
     travel_type: str | None = None,
+    indicado_por: str | None = None,
     raw_data: dict | None = None,
 ) -> Lead:
     """Cria um lead NOVO (uma cotação).
@@ -478,6 +482,7 @@ async def save_lead(
         "name": name,
         "destination": destination,
         "travel_type": travel_type,
+        "indicado_por": indicado_por,
         "raw_data": raw_data,
     }
     for col, val in optional.items():

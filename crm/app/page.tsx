@@ -47,12 +47,13 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
+        <h1 className="font-heading text-2xl sm:text-3xl font-semibold tracking-tight">
           Bom dia, Lu
         </h1>
-        <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
+        <p className="mt-0.5 text-sm text-muted-foreground">
           Como a Malu trabalhou pra você hoje.
         </p>
+        <div aria-hidden className="mt-3 h-0.5 w-10 rounded-full bg-gold" />
       </header>
 
       {/* KPIs */}
@@ -65,7 +66,7 @@ export default async function DashboardPage() {
         <KpiCard
           label="Aguardando você"
           value={pending}
-          accent={pending > 0 ? "emerald" : "neutral"}
+          accent={pending > 0 ? "gold" : "neutral"}
           helper="quente + urgente"
         />
         <KpiCard
@@ -92,18 +93,18 @@ export default async function DashboardPage() {
 
       {/* Charts */}
       <section className="grid gap-4 lg:grid-cols-2">
-        <Card className="border-zinc-200 dark:border-zinc-800 shadow-none">
+        <Card className="shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold">
               Conversas nos últimos 7 dias
             </CardTitle>
           </CardHeader>
-          <CardContent className="text-zinc-700 dark:text-zinc-300">
+          <CardContent className="text-muted-foreground">
             <ConversationsChart data={series} />
           </CardContent>
         </Card>
 
-        <Card className="border-zinc-200 dark:border-zinc-800 shadow-none">
+        <Card className="shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold">
               Distribuição por temperatura
@@ -117,7 +118,7 @@ export default async function DashboardPage() {
 
       {/* Top destinations */}
       <section>
-        <Card className="border-zinc-200 dark:border-zinc-800 shadow-none">
+        <Card className="shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold">
               Destinos mais pedidos (7d)
@@ -135,7 +136,7 @@ export default async function DashboardPage() {
           <h2 className="text-sm font-semibold">Últimos leads</h2>
           <Link
             href="/leads"
-            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+            className="inline-flex items-center gap-1 text-xs font-medium text-primary/80 hover:text-primary"
           >
             Ver todos <ArrowRight className="size-3.5" />
           </Link>
@@ -150,14 +151,14 @@ export default async function DashboardPage() {
             ))}
           </ul>
         ) : (
-          <div className="rounded-lg border border-dashed border-zinc-300 bg-white p-6 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950">
+          <div className="rounded-lg border border-dashed border-border bg-card p-6 text-center text-sm text-muted-foreground">
             Nenhum lead por enquanto. Quando a Malu fechar um briefing, ele aparece aqui.
           </div>
         )}
       </section>
 
       {conv && convPct !== null && (
-        <p className="pt-2 text-center text-xs text-zinc-500 dark:text-zinc-400 tabular-nums">
+        <p className="pt-2 text-center text-xs text-muted-foreground tabular-nums">
           {convPct}% conversão · {conv.conversations_started} conversas ·{" "}
           {conv.leads_generated} briefings
         </p>

@@ -26,7 +26,7 @@ export function ConversasSearch() {
 
   return (
     <div className="relative">
-      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
+      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
       <Input
         placeholder="Buscar por nome ou telefone"
         aria-label="Buscar conversas por nome ou telefone"

@@ -5,11 +5,12 @@ interface KpiCardProps {
   label: string;
   value: number | string;
   helper?: string;
-  accent?: "neutral" | "emerald" | "blue" | "amber";
+  accent?: "neutral" | "gold" | "emerald" | "blue" | "amber";
 }
 
 const ACCENTS: Record<NonNullable<KpiCardProps["accent"]>, string> = {
-  neutral: "text-zinc-900 dark:text-zinc-50",
+  neutral: "text-foreground",
+  gold: "text-gold",
   emerald: "text-emerald-700 dark:text-emerald-300",
   blue: "text-blue-700 dark:text-blue-300",
   amber: "text-amber-700 dark:text-amber-300",
@@ -17,9 +18,9 @@ const ACCENTS: Record<NonNullable<KpiCardProps["accent"]>, string> = {
 
 export function KpiCard({ label, value, helper, accent = "neutral" }: KpiCardProps) {
   return (
-    <Card className="border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-none">
+    <Card className="shadow-sm">
       <CardContent className="p-4 sm:p-5">
-        <p className="text-[11px] sm:text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+        <p className="text-[11px] sm:text-xs font-medium uppercase tracking-wide text-muted-foreground">
           {label}
         </p>
         <p
@@ -32,7 +33,7 @@ export function KpiCard({ label, value, helper, accent = "neutral" }: KpiCardPro
           {value}
         </p>
         {helper && (
-          <p className="mt-1 text-[11px] sm:text-xs text-zinc-500 dark:text-zinc-400">
+          <p className="mt-1 text-[11px] sm:text-xs text-muted-foreground">
             {helper}
           </p>
         )}

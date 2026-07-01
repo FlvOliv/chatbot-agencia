@@ -34,11 +34,11 @@ export function SiteShell({
   if (pathname === "/login") return <>{children}</>;
 
   return (
-    <div className="min-h-dvh flex flex-col bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
+    <div className="min-h-dvh flex flex-col bg-background text-foreground">
       <Header status={status} userName={userName} />
 
       <div className="flex flex-1 w-full">
-        <aside className="hidden lg:flex w-[60px] shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex-col items-center py-4 gap-1 sticky top-14 self-start h-[calc(100dvh-3.5rem)]">
+        <aside className="hidden lg:flex w-[60px] shrink-0 border-r border-sidebar-border bg-sidebar flex-col items-center py-4 gap-1 sticky top-14 self-start h-[calc(100dvh-3.5rem)]">
           {NAV.map(({ href, label, icon: Icon }) => {
             const active = isActive(pathname, href);
             return (
@@ -50,8 +50,8 @@ export function SiteShell({
                 className={cn(
                   "size-11 grid place-items-center rounded-lg transition-colors",
                   active
-                    ? "bg-zinc-900 text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900"
-                    : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900",
+                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                    : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
               >
                 <Icon className="size-5" />
@@ -94,30 +94,32 @@ function Header({
     status === "ok" ? "Online" : status === "degraded" ? "Instável" : "Offline";
 
   return (
-    <header className="sticky top-0 z-30 h-14 border-b border-zinc-200 dark:border-zinc-800 bg-white/90 dark:bg-zinc-950/90 backdrop-blur supports-[backdrop-filter]:bg-white/70">
+    <header className="sticky top-0 z-30 h-14 border-b border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="mx-auto flex h-full max-w-5xl items-center justify-between px-4 sm:px-6">
         <Link href="/" className="flex items-center gap-2">
-          <span className="text-base font-semibold tracking-tight">Malu</span>
-          <span className="hidden sm:inline text-xs text-zinc-500">
+          <span className="font-heading text-lg font-semibold tracking-tight text-gold">
+            Malu
+          </span>
+          <span className="hidden sm:inline text-xs text-sidebar-foreground/70">
             · Lu Milhas
           </span>
         </Link>
 
         <div className="flex items-center gap-2 sm:gap-3">
-          <span className="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+          <span className="flex items-center gap-1.5 text-xs text-sidebar-foreground/80">
             <Circle className={cn("size-2.5", statusColor)} strokeWidth={0} />
             <span>{statusLabel}</span>
           </span>
           <Link
             href="/configuracoes"
             aria-label="Configurações"
-            className="size-11 grid place-items-center rounded-md text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
+            className="size-11 grid place-items-center rounded-md text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           >
             <Settings className="size-5" />
           </Link>
           {userName ? (
-            <div className="flex items-center gap-1 border-l border-zinc-200 pl-1.5 dark:border-zinc-800">
-              <span className="hidden text-xs text-zinc-600 sm:inline dark:text-zinc-400">
+            <div className="flex items-center gap-1 border-l border-sidebar-border pl-1.5">
+              <span className="hidden text-xs text-sidebar-foreground/80 sm:inline">
                 {userName}
               </span>
               <form action={signOut}>
@@ -125,7 +127,7 @@ function Header({
                   type="submit"
                   aria-label="Sair"
                   title="Sair"
-                  className="size-11 grid place-items-center rounded-md text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
+                  className="size-11 grid place-items-center rounded-md text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 >
                   <LogOut className="size-5" />
                 </button>
@@ -140,7 +142,7 @@ function Header({
 
 function BottomNav({ pathname }: { pathname: string }) {
   return (
-    <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 h-16 border-t border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
+    <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 h-16 border-t border-sidebar-border bg-sidebar/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
       <ul className="grid grid-cols-4 h-full">
         {NAV.map(({ href, label, icon: Icon }) => {
           const active = isActive(pathname, href);
@@ -152,8 +154,8 @@ function BottomNav({ pathname }: { pathname: string }) {
                 className={cn(
                   "flex flex-col items-center justify-center gap-0.5 min-h-11 text-[11px] font-medium transition-colors",
                   active
-                    ? "text-zinc-900 dark:text-zinc-50"
-                    : "text-zinc-500 dark:text-zinc-400",
+                    ? "text-gold"
+                    : "text-sidebar-foreground/65",
                 )}
               >
                 <Icon className={cn("size-5", active && "stroke-[2.25]")} />

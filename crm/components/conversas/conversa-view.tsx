@@ -205,7 +205,7 @@ export function ConversaView({
   return (
     <div className="flex h-full flex-col">
       {/* Cabeçalho */}
-      <div className="flex items-center gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+      <div className="flex items-center gap-3 border-b border-border px-4 py-3">
         <Avatar name={name} size={36} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{name}</p>
@@ -230,7 +230,7 @@ export function ConversaView({
           <button
             onClick={handleRelease}
             disabled={pending}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
           >
             <RotateCcw className="size-4" /> Devolver
           </button>
@@ -238,7 +238,7 @@ export function ConversaView({
           <button
             onClick={handleTakeover}
             disabled={pending}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-50 hover:opacity-90 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
             <UserCheck className="size-4" /> Assumir
           </button>
@@ -248,7 +248,7 @@ export function ConversaView({
           disabled={pending}
           aria-label="Excluir conversa"
           title="Excluir conversa (faxina de teste — não afeta leads)"
-          className="grid size-9 shrink-0 place-items-center rounded-lg text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950/40"
+          className="grid size-9 shrink-0 place-items-center rounded-lg text-muted-foreground/70 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950/40"
         >
           <Trash2 className="size-4" />
         </button>
@@ -257,7 +257,7 @@ export function ConversaView({
             onClick={onToggleLead}
             aria-label={leadOpen ? "Esconder detalhes do lead" : "Mostrar detalhes do lead"}
             title={leadOpen ? "Esconder detalhes" : "Mostrar detalhes"}
-            className="hidden size-9 shrink-0 place-items-center rounded-lg text-zinc-500 hover:bg-zinc-100 lg:grid dark:hover:bg-zinc-800"
+            className="hidden size-9 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-accent lg:grid"
           >
             {leadOpen ? (
               <PanelRightClose className="size-5" />
@@ -269,7 +269,7 @@ export function ConversaView({
       </div>
 
       {/* Etiquetas (sempre visível, independe de ter lead) */}
-      <div className="flex items-center gap-2 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-2">
         <TagSelector
           key={conv.phone}
           phone={conv.phone}
@@ -279,9 +279,9 @@ export function ConversaView({
       </div>
 
       {/* Thread */}
-      <div className="flex-1 space-y-2 overflow-y-auto bg-zinc-50 px-4 py-4 dark:bg-zinc-900/40">
+      <div className="flex-1 space-y-2 overflow-y-auto overscroll-contain bg-muted/60 px-4 py-4 [-webkit-overflow-scrolling:touch]">
         {messages.length === 0 ? (
-          <p className="py-6 text-center text-sm text-zinc-500">
+          <p className="py-6 text-center text-sm text-muted-foreground">
             Sem mensagens nesta conversa.
           </p>
         ) : (
@@ -295,7 +295,7 @@ export function ConversaView({
               <div key={m.id}>
                 {showDay ? (
                   <div className="my-3 text-center">
-                    <span className="rounded-full bg-white px-2.5 py-0.5 text-[11px] text-zinc-500 shadow-sm dark:bg-zinc-800">
+                    <span className="rounded-full bg-card px-2.5 py-0.5 text-[11px] text-muted-foreground shadow-sm">
                       {dayLabel(m.created_at)}
                     </span>
                   </div>
@@ -305,10 +305,10 @@ export function ConversaView({
                     className={cn(
                       "max-w-[80%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm",
                       isClient
-                        ? "rounded-bl-sm bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100"
+                        ? "rounded-bl-sm bg-card text-card-foreground shadow-sm"
                         : isHuman
-                          ? "rounded-br-sm bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                          : "rounded-br-sm bg-emerald-600 text-white",
+                          ? "rounded-br-sm bg-gold text-gold-foreground"
+                          : "rounded-br-sm bg-primary text-primary-foreground",
                     )}
                   >
                     {!isClient ? (
@@ -321,7 +321,7 @@ export function ConversaView({
                     <div
                       className={cn(
                         "mt-0.5 text-[10px]",
-                        isClient ? "text-zinc-400" : "text-white/70 dark:text-current dark:opacity-60",
+                        isClient ? "text-muted-foreground" : "opacity-70",
                       )}
                     >
                       {formatTime(m.created_at)}
@@ -343,7 +343,7 @@ export function ConversaView({
       ) : null}
 
       {/* Compositor */}
-      <div className="border-t border-zinc-200 p-3 dark:border-zinc-800">
+      <div className="border-t border-border p-3">
         {!recording ? (
           <div className="mb-2 flex gap-1.5 overflow-x-auto pb-0.5">
             {QUICK_REPLIES.map((r) => (
@@ -352,7 +352,7 @@ export function ConversaView({
                 type="button"
                 onClick={() => setText(r.text)}
                 title={r.text}
-                className="shrink-0 rounded-full border border-zinc-200 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="shrink-0 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               >
                 {r.label}
               </button>
@@ -370,7 +370,7 @@ export function ConversaView({
                   : "Escreva… (ao enviar, você assume e a Malu pausa)"
               }
               rows={1}
-              className="max-h-32 min-h-[40px] flex-1 resize-none rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none placeholder:text-zinc-400 focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:focus:border-zinc-600"
+              className="max-h-32 min-h-[40px] flex-1 resize-none rounded-xl border border-input bg-card px-3 py-2 text-base sm:text-sm outline-none placeholder:text-muted-foreground/70 focus:border-ring"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSend();
               }}
@@ -391,14 +391,14 @@ export function ConversaView({
               onClick={handleSend}
               disabled={pending || !text.trim()}
               aria-label="Enviar"
-              className="grid size-10 shrink-0 place-items-center rounded-xl bg-zinc-900 text-zinc-50 hover:opacity-90 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+              className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40"
             >
               <Send className="size-4" />
             </button>
           ) : null}
         </div>
         {!recording ? (
-          <p className="mt-1.5 text-[11px] text-zinc-400">
+          <p className="mt-1.5 text-[11px] text-muted-foreground/80">
             Ctrl/⌘ + Enter para enviar · 🎤 grava nota de voz
           </p>
         ) : null}

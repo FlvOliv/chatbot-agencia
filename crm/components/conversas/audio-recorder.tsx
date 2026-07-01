@@ -145,7 +145,7 @@ export function AudioRecorder({
           disabled={sending}
           aria-label="Cancelar gravação"
           title="Cancelar"
-          className="grid size-7 shrink-0 place-items-center rounded-full text-zinc-500 hover:bg-zinc-200/60 disabled:opacity-40 dark:hover:bg-zinc-800"
+          className="grid size-7 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-muted disabled:opacity-40"
         >
           <Trash2 className="size-4" />
         </button>
@@ -155,7 +155,7 @@ export function AudioRecorder({
           {fmt(seconds)}
         </span>
 
-        <span className="flex-1 truncate text-xs text-zinc-400">
+        <span className="flex-1 truncate text-xs text-muted-foreground">
           {sending ? "Enviando…" : "Gravando — toque no avião para enviar"}
         </span>
 
@@ -164,7 +164,7 @@ export function AudioRecorder({
           disabled={sending}
           aria-label="Enviar áudio"
           title="Enviar"
-          className="grid size-8 shrink-0 place-items-center rounded-full bg-zinc-900 text-white hover:opacity-90 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+          className="grid size-8 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
         >
           {sending ? (
             <Loader2 className="size-4 animate-spin" />
@@ -181,7 +181,7 @@ export function AudioRecorder({
       onClick={start}
       aria-label="Gravar áudio"
       title="Gravar nota de voz"
-      className="grid size-10 shrink-0 place-items-center rounded-xl text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+      className="grid size-10 shrink-0 place-items-center rounded-xl text-muted-foreground hover:bg-accent"
     >
       <Mic className="size-5" />
     </button>

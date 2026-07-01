@@ -43,8 +43,10 @@ export default async function LeadsPage({
     <div className="space-y-4">
       <header className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Leads</h1>
-          <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
+          <h1 className="font-heading text-2xl sm:text-3xl font-semibold tracking-tight">
+            Leads
+          </h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
             {total} {total === 1 ? "lead encontrado" : "leads encontrados"}
           </p>
         </div>
@@ -65,22 +67,22 @@ export default async function LeadsPage({
               <Link
                 key={lead.id}
                 href={`/leads/${lead.numero}`}
-                className="group flex items-center gap-3 rounded-lg border border-zinc-200 bg-white p-3 transition-colors active:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 min-h-11"
+                className="group flex items-center gap-3 rounded-lg border border-border bg-card p-3 transition-colors active:bg-accent/50 min-h-11"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <p className="truncate text-sm font-medium">{display}</p>
                     <TempBadge temp={lead.lead_temp} />
                   </div>
-                  <p className="mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400">
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
                     {dest}
                   </p>
-                  <p className="mt-0.5 text-[11px] text-zinc-400">
+                  <p className="mt-0.5 text-[11px] text-muted-foreground/80">
                     {lead.numero ? `#${lead.numero} · ` : ""}
                     {formatPhone(lead.phone)} · {relativeFromNow(lead.created_at)}
                   </p>
                 </div>
-                <ChevronRight className="size-4 shrink-0 text-zinc-400" />
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />
               </Link>
             );
           })
@@ -91,9 +93,9 @@ export default async function LeadsPage({
         {items.length === 0 ? (
           <EmptyState />
         ) : (
-          <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+          <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
             <table className="w-full text-sm">
-              <thead className="bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
+              <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-4 py-2 text-left font-medium">Protocolo</th>
                   <th className="px-4 py-2 text-left font-medium">Nome</th>
@@ -104,13 +106,10 @@ export default async function LeadsPage({
                   <th className="w-8" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              <tbody className="divide-y divide-border">
                 {items.map((lead) => (
-                  <tr
-                    key={lead.id}
-                    className="hover:bg-zinc-50 dark:hover:bg-zinc-900"
-                  >
-                    <td className="px-4 py-3 text-zinc-500 dark:text-zinc-400 tabular-nums">
+                  <tr key={lead.id} className="hover:bg-accent/40">
+                    <td className="px-4 py-3 text-muted-foreground tabular-nums">
                       {lead.numero ? `#${lead.numero}` : "—"}
                     </td>
                     <td className="px-4 py-3">
@@ -121,23 +120,23 @@ export default async function LeadsPage({
                         {lead.name?.trim() || "—"}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400 tabular-nums">
+                    <td className="px-4 py-3 text-muted-foreground tabular-nums">
                       {formatPhone(lead.phone)}
                     </td>
-                    <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+                    <td className="px-4 py-3 text-muted-foreground">
                       {lead.destination?.trim() || "—"}
                     </td>
                     <td className="px-4 py-3">
                       <TempBadge temp={lead.lead_temp} />
                     </td>
-                    <td className="px-4 py-3 text-zinc-500 dark:text-zinc-500 text-xs">
+                    <td className="px-4 py-3 text-muted-foreground/80 text-xs">
                       {relativeFromNow(lead.created_at)}
                     </td>
                     <td className="px-2">
                       <Link
                         href={`/leads/${lead.numero}`}
                         aria-label="Abrir lead"
-                        className="inline-flex size-8 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                        className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                       >
                         <ChevronRight className="size-4" />
                       </Link>
@@ -157,7 +156,7 @@ export default async function LeadsPage({
 
 function EmptyState() {
   return (
-    <div className="rounded-lg border border-dashed border-zinc-300 bg-white p-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950">
+    <div className="rounded-lg border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
       Nenhum lead encontrado com esses filtros.
     </div>
   );

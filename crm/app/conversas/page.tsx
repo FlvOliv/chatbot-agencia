@@ -18,8 +18,10 @@ export default async function ConversasPage({
     <div className="space-y-4">
       <AutoRefresh intervalMs={8000} />
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Conversas</h1>
-        <p className="text-sm text-zinc-500">
+        <h1 className="font-heading text-2xl sm:text-3xl font-semibold tracking-tight">
+          Conversas
+        </h1>
+        <p className="text-sm text-muted-foreground">
           Acompanhe os atendimentos da Malu e assuma quando quiser.
         </p>
       </div>
@@ -27,13 +29,13 @@ export default async function ConversasPage({
       <ConversasSearch />
 
       {conversas.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-zinc-300 p-10 text-center text-sm text-zinc-500 dark:border-zinc-700">
+        <div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
           {q
             ? "Nenhuma conversa encontrada para essa busca."
             : "Nenhuma conversa ainda. Quando um cliente falar com a Malu, aparece aqui."}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <ConversationList conversations={conversas} />
         </div>
       )}

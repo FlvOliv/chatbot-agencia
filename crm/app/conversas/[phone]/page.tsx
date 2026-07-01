@@ -41,15 +41,15 @@ export default async function ConversaDetailPage({
 
       <Link
         href="/conversas"
-        className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-900 md:hidden dark:hover:text-zinc-100"
+        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground md:hidden"
       >
         <ArrowLeft className="size-4" /> Conversas
       </Link>
 
-      <div className="flex h-[calc(100dvh-9rem)] min-h-[480px] overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="flex h-[calc(100dvh-9rem)] min-h-[480px] overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {/* Painel 1 — lista */}
-        <aside className="hidden w-[280px] shrink-0 flex-col overflow-y-auto border-r border-zinc-200 md:flex dark:border-zinc-800">
-          <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+        <aside className="hidden w-[280px] shrink-0 flex-col overflow-y-auto border-r border-border md:flex">
+          <div className="border-b border-border px-4 py-3">
             <p className="text-sm font-semibold">Conversas</p>
           </div>
           <ConversationList conversations={conversas} activePhone={decoded} />
@@ -57,7 +57,7 @@ export default async function ConversaDetailPage({
 
         {/* Painéis 2 e 3 — thread + lead (com toggle) */}
         {conv === null ? (
-          <div className="grid min-w-0 flex-1 place-items-center p-10 text-center text-sm text-zinc-500">
+          <div className="grid min-w-0 flex-1 place-items-center p-10 text-center text-sm text-muted-foreground">
             Conversa não encontrada.
           </div>
         ) : (

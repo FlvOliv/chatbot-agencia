@@ -39,22 +39,22 @@ export default async function LeadDetailPage({
         <div className="min-w-0 flex-1">
           <Link
             href="/leads"
-            className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+            className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="size-3.5" /> Voltar para leads
           </Link>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight truncate">
+            <h1 className="font-heading text-2xl sm:text-3xl font-semibold tracking-tight truncate">
               {display}
             </h1>
             <TempBadge temp={lead.lead_temp} />
             {lead.numero && (
-              <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+              <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
                 #{lead.numero}
               </span>
             )}
           </div>
-          <p className="mt-1 flex items-center gap-1.5 text-xs text-zinc-500">
+          <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
             <Phone className="size-3.5" />
             <span className="tabular-nums">{formatPhone(lead.phone)}</span>
             {lead.destination && (
@@ -71,17 +71,17 @@ export default async function LeadDetailPage({
       </div>
 
       {/* Briefing */}
-      <Card className="border-zinc-200 dark:border-zinc-800 shadow-none">
+      <Card className="shadow-sm">
         <CardContent className="p-4 sm:p-6">
-          <h2 className="text-sm font-semibold text-zinc-500 uppercase tracking-wide mb-3">
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
             Briefing
           </h2>
           {lead.briefing_md ? (
-            <div className="briefing-md text-sm sm:text-[15px] leading-relaxed text-zinc-700 dark:text-zinc-300">
+            <div className="briefing-md text-sm sm:text-[15px] leading-relaxed text-foreground/90">
               <ReactMarkdown>{lead.briefing_md}</ReactMarkdown>
             </div>
           ) : (
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-muted-foreground">
               A Malu ainda não fechou o briefing desta cotação.
             </p>
           )}
@@ -92,13 +92,13 @@ export default async function LeadDetailPage({
       <div>
         <div className="mb-3 flex items-baseline justify-between">
           <h2 className="text-sm font-semibold">Histórico de conversa</h2>
-          <span className="text-xs text-zinc-500">
+          <span className="text-xs text-muted-foreground">
             {conversation?.messages.length ?? 0} mensagens
           </span>
         </div>
 
         {conversation && conversation.messages.length > 0 ? (
-          <div className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+          <div className="space-y-3 rounded-lg border border-border bg-card p-4 shadow-sm">
             {conversation.messages.map((m) => (
               <MessageBubble
                 key={m.id}
@@ -109,7 +109,7 @@ export default async function LeadDetailPage({
             ))}
           </div>
         ) : (
-          <div className="rounded-lg border border-dashed border-zinc-300 bg-white p-6 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950">
+          <div className="rounded-lg border border-dashed border-border bg-card p-6 text-center text-sm text-muted-foreground">
             Sem mensagens registradas ainda.
           </div>
         )}

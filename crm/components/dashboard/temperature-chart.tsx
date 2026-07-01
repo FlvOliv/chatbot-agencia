@@ -17,10 +17,10 @@ interface Props {
 }
 
 const COLORS: Record<LeadTemp, string> = {
-  frio: "#a1a1aa",
-  morno: "#60a5fa",
-  quente: "#34d399",
-  urgente: "#fb7185",
+  frio: "#94a3b8",
+  morno: "#f59e0b",
+  quente: "#f97316",
+  urgente: "#f43f5e",
 };
 
 const ORDER: LeadTemp[] = ["urgente", "quente", "morno", "frio"];

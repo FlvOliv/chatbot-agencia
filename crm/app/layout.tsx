@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Fraunces, Geist, Geist_Mono } from "next/font/google";
 import { cookies } from "next/headers";
 import "./globals.css";
 import { SiteShell } from "@/components/site-shell";
@@ -14,6 +14,13 @@ const geistSans = Geist({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+// Serifa display só para títulos — eco da elegância do logo Lu Milhas.
+const fraunces = Fraunces({
+  variable: "--font-fraunces",
+  subsets: ["latin"],
+  axes: ["opsz"],
 });
 
 export const metadata: Metadata = {
@@ -34,10 +41,13 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#fafafa",
+  themeColor: "#0e1f3b",
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  // Chrome/Android: encolhe o layout (não só o viewport visual) quando o
+  // teclado abre — o compositor do chat (dvh) fica visível acima dele.
+  interactiveWidget: "resizes-content",
 };
 
 export default async function RootLayout({
@@ -52,7 +62,7 @@ export default async function RootLayout({
   return (
     <html
       lang="pt-BR"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} h-full antialiased`}
     >
       <body className="min-h-full">
         <SiteShell status={healthStatus} userName={session?.name ?? null}>

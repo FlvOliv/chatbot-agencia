@@ -128,16 +128,16 @@ export function TagSelector({
         ))}
         <button
           onClick={() => setOpen((v) => !v)}
-          className="inline-flex items-center gap-1 rounded-full border border-dashed border-zinc-300 px-2 py-0.5 text-[11px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-600 dark:border-zinc-700 dark:hover:border-zinc-500"
+          className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:border-muted-foreground hover:text-foreground"
         >
           <Plus className="size-2.5" /> Etiqueta
         </button>
       </div>
 
       {open && (
-        <div className="absolute left-0 top-full z-30 mt-1 w-56 rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+        <div className="absolute left-0 top-full z-30 mt-1 w-56 rounded-lg border border-border bg-popover text-popover-foreground shadow-lg">
           {catalog.length > 6 && (
-            <div className="border-b border-zinc-100 p-1 dark:border-zinc-800">
+            <div className="border-b border-border p-1">
               <input
                 autoFocus
                 type="text"
@@ -155,7 +155,7 @@ export function TagSelector({
                   <button
                     onClick={() => handleAdd(tag)}
                     disabled={loading === tag.id}
-                    className="flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800"
+                    className="flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent disabled:opacity-50"
                   >
                     <span
                       className="size-2.5 shrink-0 rounded-full"
@@ -168,7 +168,7 @@ export function TagSelector({
                     disabled={loading === tag.id}
                     aria-label={`Excluir etiqueta ${tag.name}`}
                     title="Excluir do sistema"
-                    className="shrink-0 rounded p-1 text-zinc-300 opacity-0 hover:bg-zinc-100 hover:text-red-500 group-hover:opacity-100 disabled:opacity-40 dark:hover:bg-zinc-800"
+                    className="shrink-0 rounded p-1 text-muted-foreground/50 opacity-0 hover:bg-accent hover:text-red-500 group-hover:opacity-100 disabled:opacity-40"
                   >
                     <Trash2 className="size-3" />
                   </button>
@@ -176,7 +176,7 @@ export function TagSelector({
               ))}
             </ul>
           ) : (
-            <p className="px-3 py-2 text-xs text-zinc-400">
+            <p className="px-3 py-2 text-xs text-muted-foreground">
               {catalog.length === 0
                 ? "Nenhuma etiqueta criada ainda."
                 : query.trim()
@@ -185,11 +185,11 @@ export function TagSelector({
             </p>
           )}
 
-          <div className="border-t border-zinc-100 p-1 dark:border-zinc-800">
+          <div className="border-t border-border p-1">
             {!creating ? (
               <button
                 onClick={() => setCreating(true)}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent"
               >
                 <TagIcon className="size-3" /> Nova etiqueta…
               </button>
@@ -203,7 +203,7 @@ export function TagSelector({
                   onChange={(e) => setNewName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleCreate()}
                   maxLength={50}
-                  className="w-full rounded border border-zinc-200 px-2 py-1 text-xs outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full rounded border border-input px-2 py-1 text-base sm:text-xs outline-none focus:border-ring"
                 />
                 <div className="flex items-center gap-2">
                   <input
@@ -216,13 +216,13 @@ export function TagSelector({
                   <button
                     onClick={handleCreate}
                     disabled={!newName.trim() || loading === "new"}
-                    className="flex-1 rounded bg-zinc-900 px-2 py-1 text-xs font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+                    className="flex-1 rounded bg-primary px-2 py-1 text-xs font-medium text-primary-foreground disabled:opacity-40"
                   >
                     {loading === "new" ? "…" : "Criar"}
                   </button>
                   <button
                     onClick={() => setCreating(false)}
-                    className="text-xs text-zinc-400 hover:text-zinc-600"
+                    className="text-xs text-muted-foreground hover:text-foreground"
                   >
                     <X className="size-3.5" />
                   </button>

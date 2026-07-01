@@ -65,7 +65,7 @@ export function ConversationList({
   return (
     <div>
       {/* Abas */}
-      <div className="flex flex-wrap gap-1.5 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
+      <div className="flex flex-wrap gap-1.5 border-b border-border px-3 py-2">
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -73,8 +73,8 @@ export function ConversationList({
             className={cn(
               "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
               tab === t.id
-                ? "bg-zinc-900 text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900"
-                : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800",
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
             )}
           >
             {t.label}
@@ -84,7 +84,7 @@ export function ConversationList({
                   "rounded-full px-1.5 text-[10px] tabular-nums",
                   tab === t.id
                     ? "bg-white/20"
-                    : "bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300",
+                    : "bg-muted text-muted-foreground",
                 )}
               >
                 {t.count}
@@ -96,11 +96,11 @@ export function ConversationList({
 
       {/* Filtro por etiqueta — só aparece se houver etiquetas */}
       {uniqueTags.length > 0 && (
-        <div className="flex gap-1.5 overflow-x-auto border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
+        <div className="flex gap-1.5 overflow-x-auto border-b border-border px-3 py-2">
           {filterTagId !== null && (
             <button
               onClick={() => setFilterTagId(null)}
-              className="shrink-0 rounded-full border border-zinc-300 px-2 py-0.5 text-[10px] text-zinc-500 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent"
             >
               ✕ limpar
             </button>
@@ -113,7 +113,7 @@ export function ConversationList({
               }
               className={cn(
                 "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium transition-opacity",
-                filterTagId === tag.id ? "opacity-100 ring-2 ring-offset-1 ring-zinc-400" : "opacity-70 hover:opacity-100",
+                filterTagId === tag.id ? "opacity-100 ring-2 ring-offset-1 ring-ring" : "opacity-70 hover:opacity-100",
               )}
               style={{ background: tag.color, color: textOn(tag.color) }}
             >
@@ -124,7 +124,7 @@ export function ConversationList({
       )}
 
       {list.length === 0 ? (
-        <div className="p-6 text-center text-sm text-zinc-500">
+        <div className="p-6 text-center text-sm text-muted-foreground">
           {filterTagId
             ? "Nenhuma conversa com essa etiqueta."
             : tab === "aguardando"
@@ -134,7 +134,7 @@ export function ConversationList({
                 : "Nenhuma conversa ainda."}
         </div>
       ) : (
-        <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+        <ul className="divide-y divide-border">
           {list.map((c) => {
             const name = c.customer_name?.trim() || formatPhone(c.phone);
             const active = c.phone === activePhone;
@@ -145,19 +145,19 @@ export function ConversationList({
                   className={cn(
                     "flex items-center gap-3 px-3 py-3 transition-colors",
                     active
-                      ? "border-l-2 border-zinc-900 bg-zinc-100 dark:border-zinc-100 dark:bg-zinc-900"
-                      : "border-l-2 border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-900/50",
+                      ? "border-l-2 border-gold bg-accent"
+                      : "border-l-2 border-transparent hover:bg-accent/50",
                   )}
                 >
                   <Avatar name={name} size={40} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
                       <span className="truncate text-sm font-medium">{name}</span>
-                      <span className="shrink-0 text-[11px] text-zinc-400">
+                      <span className="shrink-0 text-[11px] text-muted-foreground/80">
                         {timeAgo(c.last_message_at)}
                       </span>
                     </div>
-                    <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">
+                    <p className="truncate text-xs text-muted-foreground">
                       {c.last_message_preview || "—"}
                     </p>
                     <div className="mt-1 flex items-center gap-1.5">
@@ -179,7 +179,7 @@ export function ConversationList({
                             />
                           ))}
                           {(c.tags ?? []).length > 3 && (
-                            <span className="text-[9px] text-zinc-400">
+                            <span className="text-[9px] text-muted-foreground/70">
                               +{(c.tags ?? []).length - 3}
                             </span>
                           )}

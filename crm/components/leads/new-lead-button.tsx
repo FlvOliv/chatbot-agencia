@@ -15,12 +15,12 @@ const TEMPS: Array<{ value: LeadTemp; label: string }> = [
 ];
 
 const inputCls =
-  "w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900";
+  "w-full rounded-lg border border-input px-3 py-2 text-base sm:text-sm outline-none focus:border-ring bg-card";
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-medium text-zinc-500">{label}</span>
+      <span className="mb-1 block text-xs font-medium text-muted-foreground">{label}</span>
       {children}
     </label>
   );
@@ -77,7 +77,7 @@ export function NewLeadButton() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-50 hover:opacity-90 dark:bg-zinc-100 dark:text-zinc-900"
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
       >
         <Plus className="size-4" /> Novo lead
       </button>
@@ -88,7 +88,7 @@ export function NewLeadButton() {
           onClick={close}
         >
           <div
-            className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950"
+            className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
@@ -96,7 +96,7 @@ export function NewLeadButton() {
               <button
                 onClick={close}
                 aria-label="Fechar"
-                className="rounded p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                className="rounded p-1 text-muted-foreground hover:bg-accent"
               >
                 <X className="size-4" />
               </button>
@@ -155,14 +155,14 @@ export function NewLeadButton() {
               <div className="flex justify-end gap-2 pt-1">
                 <button
                   onClick={close}
-                  className="rounded-lg px-3 py-1.5 text-sm text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  className="rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent"
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={handleSubmit}
                   disabled={pending}
-                  className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-50 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+                  className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
                 >
                   {pending ? "Criando…" : "Criar lead"}
                 </button>

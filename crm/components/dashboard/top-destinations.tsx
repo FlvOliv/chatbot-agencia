@@ -7,7 +7,7 @@ interface Props {
 export function TopDestinations({ data }: Props) {
   if (!data || data.length === 0) {
     return (
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+      <p className="text-xs text-muted-foreground">
         Sem destinos suficientes ainda — eles aparecem quando a Malu fechar
         briefings.
       </p>
@@ -24,16 +24,16 @@ export function TopDestinations({ data }: Props) {
         return (
           <li key={d.destination}>
             <div className="flex items-baseline justify-between gap-2 text-xs">
-              <span className="truncate font-medium text-zinc-800 dark:text-zinc-200">
+              <span className="truncate font-medium text-foreground">
                 {d.destination}
               </span>
-              <span className="shrink-0 tabular-nums text-zinc-500 dark:text-zinc-400">
+              <span className="shrink-0 tabular-nums text-muted-foreground">
                 {d.count} · {pct}%
               </span>
             </div>
-            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-900">
+            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full rounded-full bg-emerald-500/80 dark:bg-emerald-400/70"
+                className="h-full rounded-full bg-gold/85"
                 style={{ width: `${width}%` }}
               />
             </div>

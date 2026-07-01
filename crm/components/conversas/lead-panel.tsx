@@ -39,11 +39,11 @@ export function LeadPanel({ lead: detail }: { lead: LeadDetail | null }) {
   if (!detail) {
     return (
       <div className="p-5 text-center">
-        <div className="mx-auto mb-3 grid size-10 place-items-center rounded-full bg-zinc-100 text-zinc-400 dark:bg-zinc-900">
+        <div className="mx-auto mb-3 grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
           <FileText className="size-5" />
         </div>
         <p className="text-sm font-medium">Sem lead ainda</p>
-        <p className="mt-1 text-xs text-zinc-500">
+        <p className="mt-1 text-xs text-muted-foreground">
           A Malu monta o briefing quando o cliente termina a coleta.
         </p>
       </div>
@@ -89,11 +89,11 @@ export function LeadPanel({ lead: detail }: { lead: LeadDetail | null }) {
         <Avatar name={name} size={56} className="mx-auto mb-2" />
         <p className="text-sm font-semibold">{name}</p>
         {rota ? (
-          <p className="mt-0.5 text-xs text-zinc-500">{rota}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{rota}</p>
         ) : null}
         <div className="mt-2 flex items-center justify-center gap-1.5">
           {lead.numero ? (
-            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
               #{lead.numero}
             </span>
           ) : null}
@@ -102,27 +102,27 @@ export function LeadPanel({ lead: detail }: { lead: LeadDetail | null }) {
       </div>
 
       {shown.length > 0 ? (
-        <div className="space-y-2.5 border-t border-zinc-100 px-5 py-4 dark:border-zinc-800">
+        <div className="space-y-2.5 border-t border-border px-5 py-4">
           {shown.map(([label, value]) => (
             <div key={label} className="flex items-start justify-between gap-3">
-              <span className="shrink-0 text-xs text-zinc-500">{label}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
               <span className="text-right text-xs font-medium">{value}</span>
             </div>
           ))}
         </div>
       ) : null}
 
-      <div className="mt-auto space-y-2 border-t border-zinc-100 px-5 py-4 dark:border-zinc-800">
+      <div className="mt-auto space-y-2 border-t border-border px-5 py-4">
         <Link
           href={`/leads/${lead.numero}`}
-          className="flex items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+          className="flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-accent"
         >
           <ExternalLink className="size-4" /> Ver lead completo
         </Link>
         {lead.briefing_md ? (
           <button
             onClick={copyBriefing}
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900"
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs text-muted-foreground hover:bg-accent"
           >
             {copied ? (
               <>

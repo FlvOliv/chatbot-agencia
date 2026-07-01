@@ -29,8 +29,8 @@ export function ConversationsChart({ data }: Props) {
         >
           <defs>
             <linearGradient id="convGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="currentColor" stopOpacity={0.25} />
-              <stop offset="95%" stopColor="currentColor" stopOpacity={0} />
+              <stop offset="5%" stopColor="var(--color-chart-1)" stopOpacity={0.25} />
+              <stop offset="95%" stopColor="var(--color-chart-1)" stopOpacity={0} />
             </linearGradient>
           </defs>
           <CartesianGrid stroke="currentColor" strokeOpacity={0.08} vertical={false} />
@@ -64,7 +64,7 @@ export function ConversationsChart({ data }: Props) {
           <Area
             type="monotone"
             dataKey="conversas"
-            stroke="currentColor"
+            stroke="var(--color-chart-1)"
             strokeWidth={2}
             fill="url(#convGrad)"
           />

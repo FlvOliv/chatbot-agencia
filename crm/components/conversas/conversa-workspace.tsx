@@ -51,7 +51,7 @@ export function ConversaWorkspace({
         />
       </div>
       {showLead ? (
-        <aside className="hidden w-[300px] shrink-0 flex-col overflow-y-auto border-l border-zinc-200 lg:flex dark:border-zinc-800">
+        <aside className="hidden w-[300px] shrink-0 flex-col overflow-y-auto border-l border-border lg:flex">
           <LeadPanel lead={lead} />
         </aside>
       ) : null}

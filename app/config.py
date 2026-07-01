@@ -138,6 +138,12 @@ class Settings(BaseSettings):
     vapid_private_key: str = Field(default="")
     vapid_subject: str = Field(default="mailto:contato@lumilhas.com")
 
+    # Multi-tenant (Fase 1): chave Fernet pra cifrar segredos por agência
+    # (ex.: wa_token na tabela `agencias`). Gerar com:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Vazia = encrypt/decrypt falham explícito (fail-closed) — nunca segredo em texto puro.
+    tenant_secret_key: str = Field(default="", description="Fernet key base64 (32B) p/ segredos por tenant")
+
     # CRM API (consumida pelo frontend Next.js)
     crm_api_key: str = Field(
         default="",

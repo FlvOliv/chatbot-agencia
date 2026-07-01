@@ -10,10 +10,12 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
+    Integer,
     String,
     Text,
     func,
@@ -23,6 +25,60 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+
+
+class Agencia(Base):
+    """Agência cliente do SaaS = tenant. Fundação do multi-tenant (Fase 1, B1).
+
+    Cada agência tem seu próprio número WhatsApp (`wa_phone_id` = chave de
+    roteamento do webhook), token (cifrado em `wa_token_enc`), telefone do dono
+    a notificar, marca (Instagram/grupo/CTA em `brand`) e ajustes de prompt
+    (`prompt_overrides`). O sistema de hoje (número único da Lu) vira o tenant 1
+    via `scripts/seed_tenant_lu.py`. As demais tabelas ganham `tenant_id` no B2.
+    """
+
+    __tablename__ = "agencias"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=func.gen_random_uuid(),
+    )
+    nome: Mapped[str] = mapped_column(Text, nullable=False)
+    # Chave de roteamento: o webhook descobre a agência pelo phone_number_id.
+    wa_phone_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    # Token da Cloud API CIFRADO (Fernet, app/crypto.py) — nunca em texto puro.
+    wa_token_enc: Mapped[str] = mapped_column(Text, nullable=False)
+    # Telefone do dono da agência (ex-`settings.luciana_phone`), p/ avisos.
+    owner_phone: Mapped[str] = mapped_column(Text, nullable=False)
+    business_hours_start: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="9"
+    )
+    business_hours_end: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="18"
+    )
+    # Marca: {nome_marca, instagram, grupo_vip, cta?}. JSONB p/ evoluir sem migration.
+    brand: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    # Ajustes de prompt por agência (tom, regras extras) montados sobre a base.
+    prompt_overrides: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    plano: Mapped[str] = mapped_column(Text, nullable=False, server_default="essencial")
+    ativo: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<Agencia nome={self.nome!r} wa_phone_id={self.wa_phone_id!r}>"
 
 
 class Lead(Base):
@@ -79,6 +135,10 @@ class Lead(Base):
         nullable=False,
     )
 
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agencias.id"), nullable=True, index=True
+    )
+
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Lead phone={self.phone!r} temp={self.lead_temp!r}>"
 
@@ -109,6 +169,10 @@ class Cliente(Base):
     def display_name(self) -> str | None:
         """Nome preferido (name) com fallback pro profile_name."""
         return self.name or self.profile_name
+
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agencias.id"), nullable=True, index=True
+    )
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Cliente phone={self.phone!r} name={self.display_name!r}>"
@@ -157,6 +221,10 @@ class Reserva(Base):
         nullable=False,
     )
 
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agencias.id"), nullable=True, index=True
+    )
+
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Reserva phone={self.phone!r} destino={self.destino!r} status={self.status!r}>"
 
@@ -181,6 +249,10 @@ class PushSubscription(Base):
     auth: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agencias.id"), nullable=True, index=True
     )
 
     def __repr__(self) -> str:  # pragma: no cover
@@ -222,6 +294,10 @@ class Reminder(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agencias.id"), nullable=True, index=True
+    )
+
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Reminder phone={self.phone!r} kind={self.kind!r} due={self.due_at}>"
 
@@ -242,6 +318,10 @@ class Tag(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agencias.id"), nullable=True, index=True
+    )
+
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Tag name={self.name!r} color={self.color!r}>"
 
@@ -260,6 +340,9 @@ class ClienteTag(Base):
         UUID(as_uuid=True),
         ForeignKey("tags.id", ondelete="CASCADE"),
         primary_key=True,
+    )
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agencias.id"), nullable=True, index=True
     )
 
 
@@ -288,6 +371,10 @@ class Conversation(Base):
     media_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agencias.id"), nullable=True, index=True
     )
 
     def __repr__(self) -> str:  # pragma: no cover

@@ -263,6 +263,51 @@ async def test_run_due_skips_transferred_but_still_claims() -> None:
     assert rows[0].sent_at is not None  # reivindicado → não volta a disparar
 
 
+@pytest.mark.asyncio
+async def test_run_due_arma_tenant_da_linha_no_disparo() -> None:
+    """Cada lembrete dispara com a agência da própria linha armada no contexto
+    (envio sai do número certo — risco #2) e o contexto é resetado no fim."""
+    import uuid as _uuid
+
+    from app import tenant as tmod
+    from app.tenant import TenantContext
+
+    tid = _uuid.uuid4()
+    ctx = TenantContext(
+        id=tid,
+        nome="Agência B",
+        wa_phone_id="999",
+        wa_token_enc="enc",
+        owner_phone="5511000000000",
+        business_hours_start=9,
+        business_hours_end=18,
+        brand={},
+        prompt_overrides={},
+    )
+    rows = [
+        SimpleNamespace(phone="5511230000009", message="m", sent_at=None, tenant_id=tid)
+    ]
+    fake = _FakeSession(select_rows=rows)
+    seen: dict = {}
+
+    async def fake_by_id(x):  # noqa: ANN001
+        return ctx
+
+    async def fake_dispatch(phone, message):  # noqa: ANN001
+        seen["tenant"] = tmod.get_current_tenant()
+        return True
+
+    now = datetime(2026, 6, 23, 18, 0, tzinfo=timezone.utc)
+    with patch.object(reminders, "SessionLocal", lambda: fake), patch.object(
+        reminders, "resolve_tenant_by_id", side_effect=fake_by_id
+    ), patch.object(reminders, "_dispatch_one", side_effect=fake_dispatch):
+        result = await run_due_reminders(now=now)
+
+    assert result == {"claimed": 1, "sent": 1}
+    assert seen["tenant"] is ctx  # armou a agência da linha no disparo
+    assert tmod.get_current_tenant() is None  # resetou depois
+
+
 # ---------------------------------------------------------------------------
 # Constantes — sanity
 # ---------------------------------------------------------------------------

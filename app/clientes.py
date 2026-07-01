@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models import Cliente
+from app.tenant import current_tenant_id
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,13 +43,22 @@ async def get_or_create_cliente(
     Em concorrência, usa INSERT ... ON CONFLICT DO NOTHING + SELECT pra
     garantir idempotência.
     """
+    values: dict[str, object] = {
+        "phone": phone,
+        "profile_name": profile_name,
+        "name": profile_name,  # fallback inicial
+    }
+    # Carimba o tenant na criação (B5). None (sem contexto) → coluna fica NULL.
+    # ⚠️ TODO multi-tenant: `Cliente.phone` é PK de coluna ÚNICA — dois tenants
+    # com o mesmo telefone de cliente colidem (on_conflict_do_nothing). PK
+    # composta `(tenant_id, phone)` é migração à parte (mexe nas FKs de reservas
+    # e cliente_tags com CASCADE) — fazer ANTES de onboardar a 1ª agência externa.
+    tid = current_tenant_id()
+    if tid is not None:
+        values["tenant_id"] = tid
     stmt = (
         pg_insert(Cliente)
-        .values(
-            phone=phone,
-            profile_name=profile_name,
-            name=profile_name,  # fallback inicial
-        )
+        .values(**values)
         .on_conflict_do_nothing(index_elements=["phone"])
     )
     await db.execute(stmt)

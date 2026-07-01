@@ -366,6 +366,39 @@ def test_ask_missing_fields_so_indicacao() -> None:
     assert msg.count("💛") == 1
 
 
+def test_gate_blocks_caso_1030_completo() -> None:
+    """#1030 no shape exato: 'mês que vem' (ida) + 'fico 5 dias' (volta como
+    DURAÇÃO, não data concreta) + menção de valor + indicação nunca perguntada.
+    Mesmo com o atalho 'já finalizou?' na conversa, o gate barra o fecho e lista
+    os 3 buracos de uma vez. O valor é ruído pro gate (não é campo) — não
+    destrava nada. (NÃO valida se a data calculada está correta — isso é o LLM.)
+    """
+    history = [
+        {"role": "user", "content": "quero Paris mês que vem, fico uns 5 dias"},
+        {"role": "assistant", "content": "Que delícia, Paris é incrível! 💛"},
+        {"role": "user", "content": "uns 8 mil tá bom? já finalizou?"},
+    ]
+    data = normalize_lead_data(
+        {
+            "data_ida": "mês que vem",
+            "data_volta": "fico 5 dias",  # duração ≠ data de volta concreta
+            "qtd_adultos": "2",
+            "destino": "Paris",
+        }
+    )
+    # Duração não casa _DATE_CONCRETE_RE → vira pendente (não satisfaz a volta).
+    assert data["data_volta"].startswith("pendente (")
+    missing = gate_missing_fields(data, history)  # Malu nunca disse "indic..."
+    assert "a data de ida" in missing
+    assert "a data de volta (ou se é só ida)" in missing
+    assert "__indicacao__" in missing
+    # Nudge pede os dados duros 1º; indicação fica pro próximo turno; 1 emoji só.
+    nudge = ask_missing_fields(missing)
+    assert "data de ida" in nudge and "data de volta" in nudge
+    assert "indic" not in nudge.lower()
+    assert nudge.count("💛") == 1
+
+
 # ---------------------------------------------------------------------------
 # Aviso pra Lu — deep link pro painel
 # ---------------------------------------------------------------------------

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from app import main
@@ -221,3 +223,86 @@ def test_closing_reply_inclui_protocolo() -> None:
     assert "#1007" in reply
     assert "instagram.com/lumilhaseviagens" in reply
     assert "chat.whatsapp.com/" in reply
+
+
+@pytest.mark.asyncio
+async def test_extraction_none_does_not_finalize(monkeypatch) -> None:
+    """Fail-CLOSED: o modelo emitiu '## Resumo' mas a extração (2ª chamada de IA)
+    voltou None → o gate não pode validar a coleta → NÃO finaliza lead furado;
+    manda o nudge de completude e segue coletando (re-checa no próximo turno).
+    """
+    calls: dict[str, object] = {}
+
+    async def fake_get_state(phone):  # noqa: ANN001
+        return ""
+
+    async def fake_get_history(phone):  # noqa: ANN001
+        # Indicação JÁ perguntada → prova que o bloqueio vem da extração vazia,
+        # não de um campo faltando por acaso.
+        return [
+            {"role": "user", "content": "quero cotar uma viagem"},
+            {"role": "assistant", "content": "Alguém indicou a Lu pra você? 💛"},
+        ]
+
+    class _FakeDB:
+        async def commit(self):  # noqa: ANN001
+            pass
+
+    class _FakeSession:
+        async def __aenter__(self):  # noqa: ANN001
+            return _FakeDB()
+
+        async def __aexit__(self, *a):  # noqa: ANN001
+            return False
+
+    async def fake_get_or_create(phone, profile, db):  # noqa: ANN001
+        return SimpleNamespace(display_name="João")
+
+    async def fake_route_and_ask(history, customer_context=None):  # noqa: ANN001
+        return ("Perfeito, vou organizar tudo!\n## Resumo", "groq/llama")
+
+    def fake_split_briefing(reply):  # noqa: ANN001
+        # Parser testado isoladamente em test_briefing.py → aqui só sinaliza fecho.
+        return "Perfeito, vou organizar tudo!", "## Resumo da Solicitação"
+
+    async def fake_extract(history):  # noqa: ANN001
+        return None  # <- caso sob teste: extração capotou
+
+    async def fail_finalize(*a, **k):  # noqa: ANN001
+        calls["finalized"] = True  # NÃO pode ser chamado
+        return 1
+
+    async def fake_send(to, text):  # noqa: ANN001
+        calls["sent"] = text
+        return True
+
+    async def fake_save_history(phone, history):  # noqa: ANN001
+        calls["saved_last"] = history[-1]["content"]
+
+    async def fake_persist(*a, **k):  # noqa: ANN001
+        pass
+
+    async def fake_schedule(phone, name=None):  # noqa: ANN001
+        calls["rescheduled"] = True
+
+    monkeypatch.setattr(main, "get_state", fake_get_state)
+    monkeypatch.setattr(main, "get_history", fake_get_history)
+    monkeypatch.setattr(main, "SessionLocal", _FakeSession)
+    monkeypatch.setattr(main, "get_or_create_cliente", fake_get_or_create)
+    monkeypatch.setattr(main, "route_and_ask", fake_route_and_ask)
+    monkeypatch.setattr(main, "split_reply_and_briefing", fake_split_briefing)
+    monkeypatch.setattr(main, "extract_lead_data", fake_extract)
+    monkeypatch.setattr(main, "_finalize_lead", fail_finalize)
+    monkeypatch.setattr(main, "send_message", fake_send)
+    monkeypatch.setattr(main, "save_history", fake_save_history)
+    monkeypatch.setattr(main, "_persist_conversation", fake_persist)
+    monkeypatch.setattr(main, "schedule_callbacks", fake_schedule)
+
+    await main._process_text_message(
+        "5511955551111", "fecha aí então", "João", from_audio=True
+    )
+
+    assert "finalized" not in calls  # fail-closed: NÃO finalizou o lead
+    assert "💛" in str(calls["sent"])  # mandou o nudge de completude
+    assert calls["saved_last"] == calls["sent"]  # nudge entrou no histórico
+    assert calls.get("rescheduled") is True  # coleta segue aberta (re-arma lembrete)

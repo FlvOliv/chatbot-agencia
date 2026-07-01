@@ -30,6 +30,7 @@ from groq import AsyncGroq
 
 from app import budget
 from app.config import settings
+from app.tenant import get_current_tenant
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +152,14 @@ def _build_system_prompt(customer_context: dict[str, Any] | None) -> str:
                 f"O cliente atende por **{name}**. Continue chamando-o pelo "
                 f"nome quando fizer sentido no fluxo natural."
             )
+
+    # Ajustes de prompt por agência (B4): texto livre anexado à base (tom, regras
+    # da marca). Sem tenant / sem override → nada muda (a Lu usa a base pura).
+    tenant = get_current_tenant()
+    if tenant is not None and tenant.prompt_overrides:
+        system_extra = tenant.prompt_overrides.get("system_extra")
+        if system_extra:
+            extras.append(f"\n\n## Ajustes da agência\n{system_extra}")
 
     if customer_context and customer_context.get("from_audio"):
         extras.append(

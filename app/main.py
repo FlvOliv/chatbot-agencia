@@ -75,10 +75,17 @@ from app.session import (
 from app.audioconv import transcode_to_mp3
 from app.storage import upload_audio
 from app.transcribe import transcribe_audio
+from app.tenant import (
+    current_tenant_id,
+    get_current_tenant,
+    resolve_tenant,
+    set_current_tenant,
+)
 from app.whatsapp import (
     MEDIA_HANDOFF_REPLY,
     detect_audio_message,
     detect_non_text_message,
+    detect_phone_number_id,
     download_media,
     parse_incoming,
     send_message,
@@ -248,6 +255,15 @@ async def handle_message(data: dict[str, Any]) -> None:
            manda pergunta de intent (1/2), marca awaiting_intent, sai.
         6. Caminho normal: histórico → IA → resposta → briefing.
     """
+    # -1) Resolve a agência (tenant) pelo número de destino e guarda no contexto
+    #     da request. Desconhecido → tenant default (a Lu) — o número único de
+    #     hoje segue funcionando. Os módulos de saída/consulta leem isso no B4/B5;
+    #     aqui só resolve e arma o contexto (comportamento inalterado).
+    tenant = await resolve_tenant(detect_phone_number_id(data))
+    set_current_tenant(tenant)
+    if tenant is not None:
+        logger.debug("tenant resolvido: %s", tenant.nome)
+
     # 0) Áudio (nota de voz / arquivo) → transcreve e segue como texto (quando
     #    ligado); desligado ou em erro, cai no handoff de mídia (acolhe + Lu).
     audio = detect_audio_message(data)
@@ -468,13 +484,19 @@ async def _process_text_message(
     if briefing_block:
         raw = await extract_lead_data(history)
         lead_data = normalize_lead_data(raw) if raw else None
-        missing = (
-            gate_missing_fields(lead_data, history) if lead_data is not None else []
+        # GATE de completude — fail-CLOSED: se a extração (2ª chamada de IA) caiu
+        # (None ou {}), NÃO liberar o fecho. Roda o gate sobre {} → devolve o
+        # mínimo crítico a confirmar. Antes era fail-OPEN (else []): um pico que
+        # derrubasse só a extração (chat OK, mas JSON-mode falhou) deixava passar
+        # lead furado — justo o que o gate existe pra barrar. A extração re-tenta
+        # no próximo turno; no pior caso a Malu pede 1 dado de novo (recuperável).
+        missing = gate_missing_fields(
+            lead_data if lead_data is not None else {}, history
         )
         if missing:
-            # Coleta furada → NÃO finaliza; pede o que falta e segue coletando.
-            # (briefing_block=None reaproveita o caminho normal: salva no
-            # histórico, agenda lembrete, e o gate re-checa no próximo turno.)
+            # Coleta furada (ou não-validável) → NÃO finaliza; pede o que falta e
+            # segue coletando. (briefing_block=None reaproveita o caminho normal:
+            # salva histórico, agenda lembrete, e o gate re-checa no próximo turno.)
             logger.info("gate barrou finalização p/ %s — faltam: %s", phone, missing)
             customer_reply = ask_missing_fields(missing)
             briefing_block = None
@@ -665,7 +687,25 @@ def _build_closing_reply(numero: int | None) -> str:
     escrevia nada junto do briefing. Mensagem controlada e única por cotação
     (boa pra qualidade Meta). Anexa o protocolo (#1001...) quando houver.
     """
-    reply = COLETA_CONCLUIDA_REPLY
+    # Marca por agência (B4): usa os links do tenant atual quando houver; sem
+    # tenant/brand (testes, cron) cai no texto padrão da Lu — comportamento
+    # idêntico. (TODO multi-tenant: as menções textuais a "Lu" no corpo também
+    # viram brand antes de onboardar a 1ª agência externa.)
+    tenant = get_current_tenant()
+    brand = tenant.brand if tenant is not None else {}
+    instagram = brand.get("instagram")
+    grupo = brand.get("grupo_vip")
+    if instagram or grupo:
+        reply = (
+            "Recebi tudo! Já vou organizar pra Lu preparar sua cotação com calma. ✈️\n\n"
+            "Enquanto isso, segue a gente e entra no nosso grupo de promoções — é onde "
+            "saem as melhores oportunidades, sem spam:\n\n"
+            f"Instagram: {instagram or 'https://instagram.com/lumilhaseviagens'}\n"
+            f"Grupo VIP: {grupo or 'https://chat.whatsapp.com/KkWYCAtn3z46bg8W0rK4oc'}\n\n"
+            "Logo a Lu te chama por aqui. 🙂"
+        )
+    else:
+        reply = COLETA_CONCLUIDA_REPLY
     if numero is not None:
         reply = reply.rstrip() + f"\n\n🔖 *Protocolo da sua solicitação:* #{numero}"
     return reply
@@ -762,6 +802,7 @@ async def _persist_conversation(
     try:
         async with SessionLocal() as db:
             now = datetime.now(timezone.utc)
+            tid = current_tenant_id()  # carimbo do tenant (B5); None → NULL
             db.add_all(
                 [
                     Conversation(
@@ -770,6 +811,7 @@ async def _persist_conversation(
                         content=user_text,
                         media_path=user_media_path,
                         created_at=now,
+                        tenant_id=tid,
                     ),
                     Conversation(
                         phone=phone,
@@ -777,6 +819,7 @@ async def _persist_conversation(
                         content=reply,
                         model_used=model_used,
                         created_at=now + timedelta(milliseconds=10),
+                        tenant_id=tid,
                     ),
                 ]
             )

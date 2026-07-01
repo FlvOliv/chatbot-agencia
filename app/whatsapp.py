@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 from app.config import settings
+from app.tenant import get_current_tenant
 
 logger = logging.getLogger(__name__)
 
@@ -21,21 +22,51 @@ GRAPH_API_VERSION = "v21.0"
 AUDIO_GRAPH_API_VERSION = "v23.0"
 
 
+def _tenant_creds() -> tuple[str, str]:
+    """`(wa_phone_id, wa_token)` do tenant atual, com fallback seguro pros globals.
+
+    Lê a agência do contexto da request (B3). Sem tenant (ex.: caminho do painel,
+    cron, testes) → credenciais globais do `.env` (= a Lu hoje). Se o token do
+    tenant não decifrar (chave errada), degrada pro global e loga — um erro de
+    chave NUNCA derruba o envio.
+    """
+    tenant = get_current_tenant()
+    if tenant is not None:
+        try:
+            from app.crypto import decrypt
+
+            return tenant.wa_phone_id, decrypt(tenant.wa_token_enc)
+        except Exception:
+            logger.warning(
+                "wa_token do tenant %s indecifrável — usando credencial global",
+                getattr(tenant, "nome", "?"),
+            )
+    return settings.wa_phone_id, settings.wa_token
+
+
+def _phone_id() -> str:
+    return _tenant_creds()[0]
+
+
+def _token() -> str:
+    return _tenant_creds()[1]
+
+
 def _api_url() -> str:
-    return f"https://graph.facebook.com/{GRAPH_API_VERSION}/{settings.wa_phone_id}/messages"
+    return f"https://graph.facebook.com/{GRAPH_API_VERSION}/{_phone_id()}/messages"
 
 
 def _audio_messages_url() -> str:
-    return f"https://graph.facebook.com/{AUDIO_GRAPH_API_VERSION}/{settings.wa_phone_id}/messages"
+    return f"https://graph.facebook.com/{AUDIO_GRAPH_API_VERSION}/{_phone_id()}/messages"
 
 
 def _media_upload_url() -> str:
-    return f"https://graph.facebook.com/{AUDIO_GRAPH_API_VERSION}/{settings.wa_phone_id}/media"
+    return f"https://graph.facebook.com/{AUDIO_GRAPH_API_VERSION}/{_phone_id()}/media"
 
 
 def _headers() -> dict[str, str]:
     return {
-        "Authorization": f"Bearer {settings.wa_token}",
+        "Authorization": f"Bearer {_token()}",
         "Content-Type": "application/json",
     }
 
@@ -106,7 +137,7 @@ async def upload_media(
     if not audio_bytes:
         return None
 
-    auth = {"Authorization": f"Bearer {settings.wa_token}"}
+    auth = {"Authorization": f"Bearer {_token()}"}
     data = {"messaging_product": "whatsapp", "type": mime_type}
     files = {"file": (filename, audio_bytes, mime_type)}
     try:
@@ -254,6 +285,21 @@ def _extract_phone_and_profile(
     return phone, profile_name
 
 
+def detect_phone_number_id(data: dict[str, Any]) -> str | None:
+    """Extrai o `phone_number_id` (número de DESTINO da Meta) do webhook.
+
+    É a chave de roteamento multi-tenant: identifica PARA QUAL número/agência a
+    mensagem veio (`value.metadata.phone_number_id`). `None` se o payload não
+    trouxer (ex.: status update sem metadata, ou formato inesperado).
+    """
+    try:
+        value = data["entry"][0]["changes"][0]["value"]
+        pid = value.get("metadata", {}).get("phone_number_id")
+        return str(pid) if pid else None
+    except (KeyError, IndexError, AttributeError, TypeError):
+        return None
+
+
 def parse_incoming(
     data: dict[str, Any],
 ) -> tuple[str, str, str | None] | None:
@@ -377,7 +423,7 @@ async def download_media(media_id: str) -> tuple[bytes, str]:
     não tiver URL de download.
     """
     meta_url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{media_id}"
-    auth = {"Authorization": f"Bearer {settings.wa_token}"}
+    auth = {"Authorization": f"Bearer {_token()}"}
     async with httpx.AsyncClient(timeout=30.0) as client:
         meta_resp = await client.get(meta_url, headers=auth)
         meta_resp.raise_for_status()

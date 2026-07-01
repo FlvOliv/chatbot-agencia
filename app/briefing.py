@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from app.config import settings
 from app.models import Lead
+from app.tenant import current_tenant_id, get_current_tenant
 from app.whatsapp import send_message
 
 if TYPE_CHECKING:
@@ -405,6 +406,13 @@ def _panel_link(customer_phone: str) -> str:
     return f"{base}/conversas/{customer_phone}"
 
 
+def _owner_phone() -> str:
+    """Telefone do dono da agência a notificar — do tenant atual, com fallback
+    pro global (`luciana_phone`) quando não há tenant no contexto (B4)."""
+    tenant = get_current_tenant()
+    return tenant.owner_phone if tenant is not None else settings.luciana_phone
+
+
 def _format_phone_display(phone: str) -> str:
     """Formata `5511987654321` → `+55 11 98765-4321` (best effort)."""
     digits = re.sub(r"\D", "", phone)
@@ -438,7 +446,7 @@ async def notify_luciana(
         f"👉 Responder no painel: {_panel_link(customer_phone)}"
     )
 
-    ok = await send_message(settings.luciana_phone, body)
+    ok = await send_message(_owner_phone(), body)
     if not ok:
         logger.error("falha ao notificar Lu sobre lead %s", customer_phone)
     return ok
@@ -464,7 +472,7 @@ async def notify_luciana_returning_client(
         f"👉 Responder no painel: {_panel_link(customer_phone)}"
     )
 
-    ok = await send_message(settings.luciana_phone, body)
+    ok = await send_message(_owner_phone(), body)
     if not ok:
         logger.error(
             "falha ao notificar Lu sobre cliente retornante %s", customer_phone
@@ -495,7 +503,7 @@ async def notify_luciana_ai_down(
         f"👉 Responder no painel: {_panel_link(customer_phone)}"
     )
 
-    ok = await send_message(settings.luciana_phone, body)
+    ok = await send_message(_owner_phone(), body)
     if not ok:
         logger.error("falha ao notificar Lu sobre Malu travada (%s)", customer_phone)
     return ok
@@ -523,7 +531,7 @@ async def notify_luciana_media(
         f"👉 Responder no painel: {_panel_link(customer_phone)}"
     )
 
-    ok = await send_message(settings.luciana_phone, body)
+    ok = await send_message(_owner_phone(), body)
     if not ok:
         logger.error("falha ao notificar Lu sobre mídia do cliente %s", customer_phone)
     return ok
@@ -558,6 +566,8 @@ async def save_lead(
         "travel_type": travel_type,
         "indicado_por": indicado_por,
         "raw_data": raw_data,
+        # Carimbo do tenant (B5) — UUID entra; None é filtrado abaixo (fica NULL).
+        "tenant_id": current_tenant_id(),
     }
     for col, val in optional.items():
         if val:  # ignora None / "" / {}

@@ -40,6 +40,7 @@ from app.config import settings
 from app.database import SessionLocal
 from app.models import Reminder
 from app.session import STATE_TRANSFERRED, get_history, get_state
+from app.tenant import current_tenant_id, resolve_tenant_by_id, set_current_tenant
 from app.whatsapp import send_message
 
 logger = logging.getLogger(__name__)
@@ -169,9 +170,16 @@ async def schedule_callbacks(
                     Reminder.phone == phone, Reminder.sent_at.is_(None)
                 )
             )
+            tid = current_tenant_id()  # carimbo do tenant (B5); None → NULL
             for kind, due_at, message in rows:
                 db.add(
-                    Reminder(phone=phone, kind=kind, message=message, due_at=due_at)
+                    Reminder(
+                        phone=phone,
+                        kind=kind,
+                        message=message,
+                        due_at=due_at,
+                        tenant_id=tid,
+                    )
                 )
             await db.commit()
     except Exception:
@@ -218,7 +226,8 @@ async def run_due_reminders(now: datetime | None = None) -> dict[str, int]:
     (rede) acontece FORA da transação pra não segurar a conexão do banco.
     """
     now = now or datetime.now(timezone.utc)
-    claimed: list[tuple[str, str]] = []
+    # (phone, message, tenant_id) — o tenant_id arma a agência no disparo (B7b).
+    claimed: list[tuple[str, str, object]] = []
 
     try:
         async with SessionLocal() as db:
@@ -232,7 +241,7 @@ async def run_due_reminders(now: datetime | None = None) -> dict[str, int]:
             rows = result.scalars().all()
             for r in rows:
                 r.sent_at = now
-                claimed.append((r.phone, r.message))
+                claimed.append((r.phone, r.message, getattr(r, "tenant_id", None)))
             # Higiene: apaga enviados antigos pra tabela não crescer pra sempre.
             await db.execute(
                 delete(Reminder).where(
@@ -246,12 +255,27 @@ async def run_due_reminders(now: datetime | None = None) -> dict[str, int]:
         return {"claimed": 0, "sent": 0}
 
     sent = 0
-    for phone, message in claimed:
+    # Resolve cada tenant 1× por tick (memo) — evita 1 query por lembrete.
+    tenant_memo: dict = {}
+
+    async def _tenant_for(tid: object):  # noqa: ANN202
+        if tid is None:
+            return None
+        if tid not in tenant_memo:
+            tenant_memo[tid] = await resolve_tenant_by_id(tid)  # type: ignore[arg-type]
+        return tenant_memo[tid]
+
+    for phone, message, tenant_id in claimed:
         try:
+            # Arma a agência da linha → o lembrete sai do NÚMERO certo (fecha o
+            # risco #2 do pré-mortem) e a checagem de estado usa o tenant correto.
+            set_current_tenant(await _tenant_for(tenant_id))
             if await _dispatch_one(phone, message):
                 sent += 1
         except Exception:
             logger.exception("run_due_reminders: envio falhou para %s", phone)
+        finally:
+            set_current_tenant(None)
 
     if claimed:
         logger.info("run_due_reminders: %s vencidos, %s enviados", len(claimed), sent)

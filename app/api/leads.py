@@ -17,6 +17,7 @@ from app.api.schemas import (
 )
 from app.database import get_session
 from app.models import Cliente, Conversation, Lead
+from app.tenant import current_tenant_id, tenant_filter
 
 router = APIRouter(
     prefix="/leads",
@@ -35,7 +36,7 @@ async def list_leads(
     db: AsyncSession = Depends(get_session),
 ) -> LeadListResponse:
     """Lista paginada de leads, com filtro de temperatura, busca e ordenação."""
-    base = select(Lead)
+    base = select(Lead).where(tenant_filter(Lead))
 
     if temp and temp.lower() != "all":
         base = base.where(Lead.lead_temp == temp.lower())
@@ -68,11 +69,13 @@ async def list_leads(
 
 async def _build_lead_detail(lead: Lead, db: AsyncSession) -> LeadDetail:
     """Monta o LeadDetail (lead + cliente + contagem de mensagens)."""
-    cliente_row = await db.execute(select(Cliente).where(Cliente.phone == lead.phone))
+    cliente_row = await db.execute(
+        select(Cliente).where(Cliente.phone == lead.phone, tenant_filter(Cliente))
+    )
     cliente = cliente_row.scalar_one_or_none()
 
     count_stmt = select(func.count(Conversation.id)).where(
-        Conversation.phone == lead.phone
+        Conversation.phone == lead.phone, tenant_filter(Conversation)
     )
     count = (await db.execute(count_stmt)).scalar_one()
 
@@ -89,7 +92,9 @@ async def get_lead_by_numero(
     db: AsyncSession = Depends(get_session),
 ) -> LeadDetail:
     """Detalhe de UMA cotação específica pelo seu número (#1001...)."""
-    lead_row = await db.execute(select(Lead).where(Lead.numero == numero))
+    lead_row = await db.execute(
+        select(Lead).where(Lead.numero == numero, tenant_filter(Lead))
+    )
     lead = lead_row.scalar_one_or_none()
     if lead is None:
         raise HTTPException(status_code=404, detail="cotação não encontrada")
@@ -108,7 +113,7 @@ async def get_lead_by_phone(
     """
     lead_row = await db.execute(
         select(Lead)
-        .where(Lead.phone == phone)
+        .where(Lead.phone == phone, tenant_filter(Lead))
         .order_by(Lead.created_at.desc())
         .limit(1)
     )
@@ -130,6 +135,7 @@ async def create_lead(
         destination=(body.destination or None),
         travel_type=(body.travel_type or None),
         lead_temp=(body.lead_temp or None),
+        tenant_id=current_tenant_id(),  # carimbo do tenant (B7a)
     )
     db.add(lead)
     await db.commit()
@@ -143,7 +149,9 @@ async def delete_lead(
     db: AsyncSession = Depends(get_session),
 ) -> Response:
     """Exclui uma cotação pelo número. NÃO apaga conversas nem o cliente."""
-    result = await db.execute(delete(Lead).where(Lead.numero == numero))
+    result = await db.execute(
+        delete(Lead).where(Lead.numero == numero, tenant_filter(Lead))
+    )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="cotação não encontrada")
     await db.commit()

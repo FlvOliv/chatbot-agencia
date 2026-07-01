@@ -16,6 +16,7 @@ from sqlalchemy import select
 from app.api.auth import require_api_key
 from app.database import SessionLocal
 from app.models import PushSubscription
+from app.tenant import current_tenant_id
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ async def subscribe(payload: PushSubscribeIn) -> dict[str, str]:
                     endpoint=payload.endpoint,
                     p256dh=payload.keys.p256dh,
                     auth=payload.keys.auth,
+                    tenant_id=current_tenant_id(),  # carimbo do tenant (B7a)
                 )
             )
         await db.commit()

@@ -10,6 +10,7 @@ from app.api.auth import require_api_key
 from app.api.schemas import ReservaCreate, ReservaOut
 from app.database import get_session
 from app.models import Cliente, Reserva
+from app.tenant import current_tenant_id, tenant_filter
 
 router = APIRouter(
     prefix="/reservas",
@@ -24,7 +25,9 @@ async def list_reservas(
     db: AsyncSession = Depends(get_session),
 ) -> list[ReservaOut]:
     """Lista todas as reservas, ordenadas por created_at desc."""
-    stmt = select(Reserva).order_by(Reserva.created_at.desc())
+    stmt = select(Reserva).where(tenant_filter(Reserva)).order_by(
+        Reserva.created_at.desc()
+    )
     if status:
         stmt = stmt.where(Reserva.status == status.lower())
     rows = await db.execute(stmt)
@@ -38,7 +41,7 @@ async def create_reserva(
 ) -> ReservaOut:
     """Cria uma nova reserva — exige que o cliente já exista (FK)."""
     cliente_row = await db.execute(
-        select(Cliente).where(Cliente.phone == payload.phone)
+        select(Cliente).where(Cliente.phone == payload.phone, tenant_filter(Cliente))
     )
     cliente = cliente_row.scalar_one_or_none()
     if cliente is None:
@@ -54,6 +57,7 @@ async def create_reserva(
         data_viagem=payload.data_viagem,
         status=payload.status,
         observacoes=payload.observacoes,
+        tenant_id=current_tenant_id(),  # carimbo do tenant (B7a)
     )
     db.add(reserva)
     await db.flush()

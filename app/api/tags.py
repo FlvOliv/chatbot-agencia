@@ -15,6 +15,7 @@ from app.api.auth import require_api_key
 from app.api.schemas import TagIn, TagOut
 from app.database import get_session
 from app.models import Tag
+from app.tenant import current_tenant_id, tenant_filter
 
 router = APIRouter(
     prefix="/tags",
@@ -25,13 +26,15 @@ router = APIRouter(
 
 @router.get("", response_model=list[TagOut])
 async def list_tags(db: AsyncSession = Depends(get_session)) -> list[Tag]:
-    rows = await db.execute(select(Tag).order_by(Tag.name))
+    rows = await db.execute(
+        select(Tag).where(tenant_filter(Tag)).order_by(Tag.name)
+    )
     return list(rows.scalars().all())
 
 
 @router.post("", response_model=TagOut, status_code=201)
 async def create_tag(body: TagIn, db: AsyncSession = Depends(get_session)) -> Tag:
-    tag = Tag(name=body.name.strip(), color=body.color)
+    tag = Tag(name=body.name.strip(), color=body.color, tenant_id=current_tenant_id())
     db.add(tag)
     try:
         await db.commit()

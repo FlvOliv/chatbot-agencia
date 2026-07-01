@@ -15,11 +15,13 @@ Estrutura:
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.api import config, conversations, leads, metrics, push, reservas, tags
+from app.api.deps import bind_tenant
 
-api_router = APIRouter(prefix="/api")
+# bind_tenant roda em TODA rota /api/* → arma o tenant da request (B7a).
+api_router = APIRouter(prefix="/api", dependencies=[Depends(bind_tenant)])
 api_router.include_router(leads.router)
 api_router.include_router(conversations.router)
 api_router.include_router(reservas.router)

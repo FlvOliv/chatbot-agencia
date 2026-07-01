@@ -16,6 +16,7 @@ from app.audioconv import transcode_to_mp3
 from app.database import get_session
 from app.models import Cliente, ClienteTag, Conversation, Lead, Tag
 from app.storage import signed_url, upload_audio
+from app.tenant import current_tenant_id, tenant_filter
 from app.session import (
     STATE_TRANSFERRED,
     clear_history,
@@ -54,6 +55,7 @@ async def list_conversations(
             func.max(Conversation.created_at).label("last_at"),
             func.count(Conversation.id).label("msg_count"),
         )
+        .where(tenant_filter(Conversation))
         .group_by(Conversation.phone)
         .subquery()
     )
@@ -96,20 +98,22 @@ async def list_conversations(
     # Preview: última mensagem de cada phone (DISTINCT ON — 1 query pro lote todo)
     content_rows = await db.execute(
         select(Conversation.phone, Conversation.content)
-        .where(Conversation.phone.in_(phones))
+        .where(Conversation.phone.in_(phones), tenant_filter(Conversation))
         .order_by(Conversation.phone, Conversation.created_at.desc())
         .distinct(Conversation.phone)
     )
     content_by_phone = {p: c for p, c in content_rows.all()}
 
     # Cliente de cada phone (1 query)
-    cliente_rows = await db.execute(select(Cliente).where(Cliente.phone.in_(phones)))
+    cliente_rows = await db.execute(
+        select(Cliente).where(Cliente.phone.in_(phones), tenant_filter(Cliente))
+    )
     cliente_by_phone = {c.phone: c for c in cliente_rows.scalars().all()}
 
     # Temperatura: a cotação MAIS RECENTE de cada phone (DISTINCT ON — 1 query)
     lead_rows = await db.execute(
         select(Lead.phone, Lead.lead_temp)
-        .where(Lead.phone.in_(phones))
+        .where(Lead.phone.in_(phones), tenant_filter(Lead))
         .order_by(Lead.phone, Lead.created_at.desc())
         .distinct(Lead.phone)
     )
@@ -120,7 +124,7 @@ async def list_conversations(
     tag_rows = await db.execute(
         select(ClienteTag.cliente_phone, Tag)
         .join(Tag, Tag.id == ClienteTag.tag_id)
-        .where(ClienteTag.cliente_phone.in_(phones))
+        .where(ClienteTag.cliente_phone.in_(phones), tenant_filter(ClienteTag))
     )
     for cp, tag in tag_rows.all():
         tags_by_phone.setdefault(cp, []).append(tag)
@@ -158,7 +162,7 @@ async def get_conversation(
     # conversa "congelava" numa msg velha quando passava do teto.
     rows = await db.execute(
         select(Conversation)
-        .where(Conversation.phone == phone)
+        .where(Conversation.phone == phone, tenant_filter(Conversation))
         .order_by(Conversation.created_at.desc())
         .limit(limit)
     )
@@ -166,7 +170,9 @@ async def get_conversation(
     if not messages:
         raise HTTPException(status_code=404, detail="conversa não encontrada")
 
-    cliente_row = await db.execute(select(Cliente).where(Cliente.phone == phone))
+    cliente_row = await db.execute(
+        select(Cliente).where(Cliente.phone == phone, tenant_filter(Cliente))
+    )
     cliente = cliente_row.scalar_one_or_none()
 
     # Mensagens de voz têm media_path → gera o link assinado pro player do painel.
@@ -195,7 +201,9 @@ async def delete_conversation(
     mensagem como NOVA (sem interferência das antigas). NÃO mexe em
     leads/clientes — esses têm gestão própria.
     """
-    await db.execute(delete(Conversation).where(Conversation.phone == phone))
+    await db.execute(
+        delete(Conversation).where(Conversation.phone == phone, tenant_filter(Conversation))
+    )
     await db.commit()
     await clear_history(phone)
     await clear_state(phone)
@@ -262,6 +270,7 @@ async def human_reply(
             role="assistant",
             content=body.text,
             model_used="human",
+            tenant_id=current_tenant_id(),  # carimbo do tenant (B7a)
         )
     )
     await db.commit()
@@ -312,6 +321,7 @@ async def human_reply_audio(
             content="🎤 Áudio",
             model_used="human",
             media_path=media_path,
+            tenant_id=current_tenant_id(),  # carimbo do tenant (B7a)
         )
     )
     await db.commit()
@@ -358,7 +368,13 @@ async def add_tag(
 
     existing = await db.get(ClienteTag, (phone, tid))
     if not existing:
-        db.add(ClienteTag(cliente_phone=phone, tag_id=tid))
+        db.add(
+            ClienteTag(
+                cliente_phone=phone,
+                tag_id=tid,
+                tenant_id=current_tenant_id(),  # carimbo do tenant (B7a)
+            )
+        )
         await db.commit()
     return tag
 

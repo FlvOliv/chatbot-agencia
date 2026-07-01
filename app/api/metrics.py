@@ -20,6 +20,7 @@ from app.api.schemas import (
 )
 from app.database import SessionLocal, get_session
 from app.models import Conversation, Lead, Reserva
+from app.tenant import tenant_filter
 
 router = APIRouter(
     prefix="/dashboard",
@@ -40,20 +41,24 @@ async def get_dashboard_metrics(
 
     leads_today = (
         await db.execute(
-            select(func.count(Lead.id)).where(Lead.created_at >= start_today)
+            select(func.count(Lead.id)).where(
+                Lead.created_at >= start_today, tenant_filter(Lead)
+            )
         )
     ).scalar_one()
 
     leads_week = (
         await db.execute(
-            select(func.count(Lead.id)).where(Lead.created_at >= start_week)
+            select(func.count(Lead.id)).where(
+                Lead.created_at >= start_week, tenant_filter(Lead)
+            )
         )
     ).scalar_one()
 
     active_conversations = (
         await db.execute(
             select(func.count(func.distinct(Conversation.phone))).where(
-                Conversation.created_at >= cutoff_active
+                Conversation.created_at >= cutoff_active, tenant_filter(Conversation)
             )
         )
     ).scalar_one()
@@ -61,19 +66,23 @@ async def get_dashboard_metrics(
     pending = (
         await db.execute(
             select(func.count(Lead.id)).where(
-                Lead.lead_temp.in_(["quente", "urgente"])
+                Lead.lead_temp.in_(["quente", "urgente"]), tenant_filter(Lead)
             )
         )
     ).scalar_one()
 
     reservas_ativas = (
         await db.execute(
-            select(func.count(Reserva.id)).where(Reserva.status == "ativa")
+            select(func.count(Reserva.id)).where(
+                Reserva.status == "ativa", tenant_filter(Reserva)
+            )
         )
     ).scalar_one()
 
     temp_rows = await db.execute(
-        select(Lead.lead_temp, func.count(Lead.id)).group_by(Lead.lead_temp)
+        select(Lead.lead_temp, func.count(Lead.id))
+        .where(tenant_filter(Lead))
+        .group_by(Lead.lead_temp)
     )
     by_temp: dict[str, int] = {"frio": 0, "morno": 0, "quente": 0, "urgente": 0}
     for temp, count in temp_rows.all():
@@ -124,7 +133,11 @@ async def _conversations_per_day(start: datetime) -> dict[date, int]:
     async with SessionLocal() as session:
         rows = await session.execute(
             select(day.label("d"), func.count(func.distinct(Conversation.phone)))
-            .where(Conversation.created_at >= start, Conversation.role == "user")
+            .where(
+                Conversation.created_at >= start,
+                Conversation.role == "user",
+                tenant_filter(Conversation),
+            )
             .group_by(day)
         )
         out: dict[date, int] = {}
@@ -140,7 +153,7 @@ async def _leads_per_day(start: datetime) -> dict[date, int]:
     async with SessionLocal() as session:
         rows = await session.execute(
             select(day.label("d"), func.count(Lead.id))
-            .where(Lead.created_at >= start)
+            .where(Lead.created_at >= start, tenant_filter(Lead))
             .group_by(day)
         )
         out: dict[date, int] = {}
@@ -159,6 +172,7 @@ async def _top_destinations_raw(start: datetime) -> list[tuple[str, int]]:
                 Lead.created_at >= start,
                 Lead.destination.is_not(None),
                 Lead.destination != "",
+                tenant_filter(Lead),
             )
             .group_by(Lead.destination)
             .order_by(func.count(Lead.id).desc())
@@ -172,7 +186,11 @@ async def _hourly_distribution(start: datetime) -> dict[int, int]:
     async with SessionLocal() as session:
         rows = await session.execute(
             select(hour_expr.label("h"), func.count(Conversation.id))
-            .where(Conversation.created_at >= start, Conversation.role == "user")
+            .where(
+                Conversation.created_at >= start,
+                Conversation.role == "user",
+                tenant_filter(Conversation),
+            )
             .group_by(hour_expr)
         )
         out: dict[int, int] = {}
@@ -188,13 +206,17 @@ async def _conversion_inputs(start: datetime) -> tuple[int, int]:
         convs = (
             await session.execute(
                 select(func.count(func.distinct(Conversation.phone))).where(
-                    Conversation.created_at >= start, Conversation.role == "user"
+                    Conversation.created_at >= start,
+                    Conversation.role == "user",
+                    tenant_filter(Conversation),
                 )
             )
         ).scalar_one()
         leads = (
             await session.execute(
-                select(func.count(Lead.id)).where(Lead.created_at >= start)
+                select(func.count(Lead.id)).where(
+                    Lead.created_at >= start, tenant_filter(Lead)
+                )
             )
         ).scalar_one()
         return int(convs or 0), int(leads or 0)
@@ -207,6 +229,7 @@ async def _ai_provider_rows(start: datetime) -> list[tuple[str | None, int]]:
             .where(
                 Conversation.created_at >= start,
                 Conversation.role == "assistant",
+                tenant_filter(Conversation),
             )
             .group_by(Conversation.model_used)
         )

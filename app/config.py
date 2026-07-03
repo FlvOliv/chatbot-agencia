@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     # o liga/desliga real é o paid_floor_enabled.
     monthly_paid_token_cap: int = Field(default=30_000_000)
 
+    # Alavanca B — estado de coleta injetado no prompt (a Malu não repergunta o
+    # que já foi dito). Custa 1 extração a mais por turno (reusada no gate de
+    # finalização). Default DESLIGADO por segurança de cota (Achado 0): ligar com
+    # COLETA_STATE_ENABLED=true no Railway quando houver fôlego de IA.
+    coleta_state_enabled: bool = Field(default=False)
+
     # Banco e cache
     database_url: str = Field(
         default="postgresql+asyncpg://malu:malu@localhost:5432/malu"

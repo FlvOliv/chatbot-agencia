@@ -346,6 +346,47 @@ def test_gate_accepts_one_way() -> None:
     assert missing == []
 
 
+def test_gate_accepts_one_way_from_history() -> None:
+    """Bug real de produção: o cliente diz 'só ida' e o extrator deixa data_volta
+    NULO → o gate NÃO pode exigir data de volta, senão repete o nudge pra sempre
+    (loop das conversas UM/DOIS/TRÊS)."""
+    data = normalize_lead_data({"data_ida": "10/07", "qtd_adultos": "1"})  # volta nula
+    history = _INDIC_ASKED + [
+        {"role": "user", "content": "somente ida de SP para RJ, dia 10, 1 pessoa"}
+    ]
+    missing = gate_missing_fields(data, history)
+    assert "a data de volta (ou se é só ida)" not in missing
+    assert missing == []
+
+
+@pytest.mark.parametrize(
+    "fala",
+    ["só ida", "so ida", "é so ida", "Só ida.", "Somente ida. Dia 08.", "sem volta"],
+)
+def test_gate_detecta_so_ida_em_variantes(fala: str) -> None:
+    data = normalize_lead_data({"data_ida": "10/07", "qtd_adultos": "1"})
+    history = _INDIC_ASKED + [{"role": "user", "content": fala}]
+    assert "a data de volta (ou se é só ida)" not in gate_missing_fields(data, history)
+
+
+def test_gate_ainda_exige_volta_sem_marcador() -> None:
+    """Regressão: sem sinal de só-ida e sem data_volta → segue exigindo a volta."""
+    data = normalize_lead_data({"data_ida": "10/07", "qtd_adultos": "1"})
+    history = _INDIC_ASKED + [{"role": "user", "content": "ida de SP pro Rio dia 10"}]
+    assert "a data de volta (ou se é só ida)" in gate_missing_fields(data, history)
+
+
+def test_gate_nao_confunde_malu_perguntando_so_ida() -> None:
+    """A Malu perguntar 'é só ida ou tem volta?' NÃO marca a viagem como só-ida —
+    só a fala do CLIENTE conta (senão marcaria antes de o cliente confirmar)."""
+    data = normalize_lead_data({"data_ida": "10/07", "qtd_adultos": "1"})
+    history = _INDIC_ASKED + [
+        {"role": "assistant", "content": "É só ida mesmo, sem volta?"},
+        {"role": "user", "content": "dia 10"},
+    ]
+    assert "a data de volta (ou se é só ida)" in gate_missing_fields(data, history)
+
+
 def test_indicacao_foi_perguntada() -> None:
     assert indicacao_foi_perguntada(_INDIC_ASKED) is True
     assert indicacao_foi_perguntada([{"role": "user", "content": "quem indicou?"}]) is False

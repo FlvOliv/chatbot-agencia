@@ -10,9 +10,11 @@ Fluxo (CLAUDE.md, seção "Fluxo principal de uma mensagem"):
 from __future__ import annotations
 
 import asyncio
+import difflib
 import hashlib
 import hmac
 import logging
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -27,12 +29,14 @@ from app.api import api_router
 from app.api import tick as tick_api
 from app.briefing import (
     ask_missing_fields,
+    build_coleta_digest,
     extract_customer_name,
     gate_missing_fields,
     lead_columns_from_data,
     normalize_lead_data,
     notify_luciana,
     notify_luciana_ai_down,
+    notify_luciana_impasse,
     notify_luciana_media,
     notify_luciana_returning_client,
     parse_lead_temp,
@@ -117,6 +121,19 @@ IA_FALHA_REPLY = (
     "Já avisei a Lu e ela vai continuar seu atendimento pessoalmente por aqui, "
     "tá? Já já ela te responde. 💛"
 )
+
+# Mensagem quando a coleta trava num impasse (Malu repetindo a mesma pergunta
+# sem o cliente avançar — §6). A Lu assume em vez de a Malu insistir.
+IMPASSE_REPLY = (
+    "Acho melhor a Lu seguir com você a partir daqui pra não te fazer repetir, "
+    "tá? Já vou chamá-la aqui. 💛"
+)
+
+# Anti-loop (Alavanca D): duas falas da Malu com semelhança >= este limiar (texto
+# normalizado, difflib) contam como "mesma pergunta repetida". Mensagens curtas
+# (< _LOOP_MIN_LEN) não contam — saudação/confirmação curta não é loop.
+_LOOP_SIMILARITY_THRESHOLD = 0.85
+_LOOP_MIN_LEN = 40
 
 
 @asynccontextmanager
@@ -304,6 +321,48 @@ async def handle_message(data: dict[str, Any]) -> None:
     await _process_text_message(phone, user_text, profile_name)
 
 
+def _split_and_clean(reply: str) -> tuple[str, str | None, bool, bool]:
+    """Pós-produção padrão de uma resposta do modelo antes de ir pro cliente.
+
+    Separa o bloco de briefing (fim de coleta) e o marcador `## TRANSFERIR`
+    (sinais INTERNOS — não vão pro cliente), aplica o guard de preço e o
+    sanitizer de formatação. Retorna
+    (texto_pro_cliente, briefing_block, wants_transfer, price_blocked).
+    """
+    customer_reply, briefing_block = split_reply_and_briefing(reply)
+    customer_reply, wants_transfer = split_reply_and_transfer(customer_reply)
+    customer_reply, price_blocked = price_guard(customer_reply)
+    customer_reply = sanitize_outgoing(customer_reply)
+    return customer_reply, briefing_block, wants_transfer, price_blocked
+
+
+def _last_assistant(history: list[dict[str, Any]]) -> str | None:
+    """Última fala da Malu no histórico (ou None se ainda não houver)."""
+    for msg in reversed(history):
+        if msg.get("role") == "assistant":
+            return str(msg.get("content") or "")
+    return None
+
+
+def _normalize_for_compare(text: str) -> str:
+    """Minúsculas + espaços colapsados — pra comparar duas falas por semelhança."""
+    return re.sub(r"\s+", " ", text.strip().lower())
+
+
+def _too_similar(a: str, b: str) -> bool:
+    """True se `a` e `b` são quase a mesma mensagem (pergunta repetida = loop).
+
+    Mensagens curtas (< `_LOOP_MIN_LEN`) não contam — evita falso-positivo com
+    saudações/confirmações curtas. Compara texto normalizado via difflib.
+    """
+    if not a or not b:
+        return False
+    na, nb = _normalize_for_compare(a), _normalize_for_compare(b)
+    if len(na) < _LOOP_MIN_LEN or len(nb) < _LOOP_MIN_LEN:
+        return False
+    return difflib.SequenceMatcher(None, na, nb).ratio() >= _LOOP_SIMILARITY_THRESHOLD
+
+
 async def _process_text_message(
     phone: str,
     user_text: str,
@@ -440,10 +499,28 @@ async def _process_text_message(
         history = await get_history(phone)  # relê após a espera (estado mais fresco)
 
     history.append({"role": "user", "content": user_text})
+
+    # Alavanca B: extrai o estado da coleta 1× e injeta no prompt pra a Malu NÃO
+    # reperguntar o que já foi dito (mata o loop de campo já respondido). Pulado
+    # no 1º turno (nada coletado) e quando desligado (COLETA_STATE_ENABLED — custa
+    # 1 extração por turno). Reusado no gate de finalização (mesma history), então
+    # não há extração dobrada nos turnos que fecham a coleta.
+    lead_data_cache: dict[str, Any] | None = None
+    coleta_state: str | None = None
+    if not is_first_turn and settings.coleta_state_enabled:
+        try:
+            raw_state = await extract_lead_data(history)
+            if raw_state:
+                lead_data_cache = normalize_lead_data(raw_state)
+                coleta_state = build_coleta_digest(lead_data_cache, history)
+        except Exception:
+            logger.exception("coleta_state: extração falhou para %s", phone)
+
     customer_context = {
         "name": customer_name,
         "is_first_turn": is_first_turn,
         "from_audio": from_audio,
+        "coleta_state": coleta_state,
     }
     reply, model_used = await route_and_ask(history, customer_context=customer_context)
 
@@ -453,26 +530,42 @@ async def _process_text_message(
         await _handle_ai_failure(phone, user_text, customer_name)
         return
 
-    # O bloco "## Resumo" é sinal INTERNO de fim de coleta — não vai pro cliente.
-    customer_reply, briefing_block = split_reply_and_briefing(reply)
-    # "## TRANSFERIR" é sinal INTERNO: cliente quer falar de uma cotação/reserva
-    # que a Lu JÁ fez → passa a conversa pra Lu (sem coleta, sem pedir dados).
-    customer_reply, wants_transfer = split_reply_and_transfer(customer_reply)
+    # Pós-produção: separa "## Resumo" (fim de coleta) e "## TRANSFERIR" (sinais
+    # INTERNOS que não vão pro cliente), aplica guard de preço e sanitiza.
+    customer_reply, briefing_block, wants_transfer, price_blocked = _split_and_clean(reply)
 
-    # Guard de preço (P0) — rede de segurança determinística: se o modelo
-    # escapou e citou valor, troca pela frase segura ANTES de qualquer envio.
-    # Vale pra todos os modelos da cadeia (o 8b/gemini ignoram regras sutis).
-    customer_reply, price_blocked = price_guard(customer_reply)
+    # Anti-loop (Alavanca D): se a resposta ficou quase IGUAL à última fala da
+    # Malu (o cliente não respondeu aquele ponto e ela ia repetir), re-prompta
+    # UMA vez pedindo pra avançar (campo opcional → "sem preferência"). Se ainda
+    # assim repetir, é impasse (§6) → a Lu assume. Só no caminho de coleta normal
+    # (transferência e fim-de-coleta seguem direto).
+    if not wants_transfer and not briefing_block:
+        previous = _last_assistant(history)
+        if previous is not None and _too_similar(customer_reply, previous):
+            logger.info("anti-loop: resposta repetida para %s — re-prompt", phone)
+            reply2, model2 = await route_and_ask(
+                history, customer_context={**customer_context, "anti_loop": True}
+            )
+            if model2 != "error":
+                cr2, bb2, wt2, pb2 = _split_and_clean(reply2)
+                if bb2 or wt2 or not _too_similar(cr2, previous):
+                    customer_reply, briefing_block, wants_transfer, price_blocked = (
+                        cr2, bb2, wt2, pb2,
+                    )
+                    model_used = model2
+                else:
+                    logger.info(
+                        "anti-loop: impasse persistente para %s — Lu assume", phone
+                    )
+                    await _impasse_to_lu(phone, user_text, customer_name)
+                    return
+
     if price_blocked:
         logger.warning(
             "price_guard bloqueou valor na resposta ao cliente %s (modelo=%s)",
             phone,
             model_used,
         )
-
-    # Sanitizer de formatação (P2) — converte ** → *, tira # e asterisco órfão
-    # antes de enviar (o WhatsApp usa * único pra negrito).
-    customer_reply = sanitize_outgoing(customer_reply)
 
     if wants_transfer:
         await _transfer_to_lu(phone, user_text, customer_reply, customer_name)
@@ -482,8 +575,12 @@ async def _process_text_message(
     # GATE de completude: não fecha lead com data vaga, sem passageiros ou sem
     # ter perguntado a indicação (mínimo crítico). Extrai/normaliza 1× e reusa.
     if briefing_block:
-        raw = await extract_lead_data(history)
-        lead_data = normalize_lead_data(raw) if raw else None
+        # Reusa a extração da Alavanca B (mesma history); senão extrai agora.
+        if lead_data_cache is not None:
+            lead_data = lead_data_cache
+        else:
+            raw = await extract_lead_data(history)
+            lead_data = normalize_lead_data(raw) if raw else None
         # GATE de completude — fail-CLOSED: se a extração (2ª chamada de IA) caiu
         # (None ou {}), NÃO liberar o fecho. Roda o gate sobre {} → devolve o
         # mínimo crítico a confirmar. Antes era fail-OPEN (else []): um pico que
@@ -569,6 +666,30 @@ async def _transfer_to_lu(
         await notify_luciana_returning_client(phone, customer_name)
     except Exception:
         logger.exception("notify_luciana_returning_client failed for %s", phone)
+    await asyncio.gather(send_task, audit_task, return_exceptions=True)
+
+
+async def _impasse_to_lu(
+    phone: str,
+    user_text: str,
+    customer_name: str | None,
+) -> None:
+    """Impasse (§6): a Malu ficou repetindo a mesma pergunta sem o cliente
+    avançar → em vez de insistir, a Lu assume.
+
+    Marca STATE_TRANSFERRED (Malu cala), avisa a Lu com o contexto certo
+    (travou/loop, não "cliente pediu") e para os lembretes.
+    """
+    await set_state(phone, STATE_TRANSFERRED)
+    await cancel_reminders(phone)
+    send_task = asyncio.create_task(send_message(phone, IMPASSE_REPLY))
+    audit_task = asyncio.create_task(
+        _persist_conversation(phone, user_text, IMPASSE_REPLY, "flow:impasse")
+    )
+    try:
+        await notify_luciana_impasse(phone, customer_name)
+    except Exception:
+        logger.exception("notify_luciana_impasse failed for %s", phone)
     await asyncio.gather(send_task, audit_task, return_exceptions=True)
 
 

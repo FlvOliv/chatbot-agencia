@@ -267,6 +267,24 @@ def indicacao_foi_perguntada(history: list[dict]) -> bool:
     return False
 
 
+def _mentions_oneway(history: list[dict]) -> bool:
+    """True se o CLIENTE sinalizou viagem só de ida em qualquer turno.
+
+    A intenção de "só ida" mora na fala do cliente — o extrator deixa
+    `data_volta` NULO quando não há volta, então o gate PRECISA ler o histórico.
+    Sem isso, o gate exige eternamente uma data de volta que não existe (loop
+    real em produção com passagem só de ida — cliente repete "só ida" e a Malu
+    repete o nudge de volta). Só varre falas do cliente pra não disparar com a
+    própria Malu perguntando "é só ida ou tem volta?".
+    """
+    for msg in history:
+        if msg.get("role") == "user" and _ONEWAY_RE.search(
+            str(msg.get("content") or "")
+        ):
+            return True
+    return False
+
+
 def gate_missing_fields(data: dict, history: list[dict]) -> list[str]:
     """Campos obrigatórios faltando que BARRAM o fecho do lead (mínimo crítico).
 
@@ -279,7 +297,11 @@ def gate_missing_fields(data: dict, history: list[dict]) -> list[str]:
     if _pendente_ou_vazio(data.get("data_ida")):
         missing.append("a data de ida")
     volta = _clean_value(data.get("data_volta"))
-    is_oneway = volta is not None and _ONEWAY_RE.search(volta) is not None
+    # Só-ida detectado pelo campo (se o extrator marcou) OU pela fala do cliente
+    # no histórico (fonte real da intenção; o campo costuma vir nulo).
+    is_oneway = (
+        volta is not None and _ONEWAY_RE.search(volta) is not None
+    ) or _mentions_oneway(history)
     if not is_oneway and _pendente_ou_vazio(data.get("data_volta")):
         missing.append("a data de volta (ou se é só ida)")
     adultos = _clean_value(data.get("qtd_adultos"))
@@ -288,6 +310,35 @@ def gate_missing_fields(data: dict, history: list[dict]) -> list[str]:
     if not indicacao_foi_perguntada(history):
         missing.append("__indicacao__")
     return missing
+
+
+# Campos que NÃO entram no digest de "já coletado" (identidade/ruído, não são
+# dados da viagem que a Malu perguntaria).
+_DIGEST_SKIP = {"whatsapp", "nome_cliente"}
+
+
+def build_coleta_digest(data: dict, history: list[dict]) -> str | None:
+    """Resumo compacto do que o cliente JÁ informou + o mínimo que falta (Alavanca
+    B), pra injetar no prompt: a Malu confere isto antes de perguntar e não
+    repergunta o que já foi dito. Retorna None se nada concreto foi coletado.
+
+    Campos "pendente" (data vaga, quantidade não-numérica) NÃO entram no "já
+    informado" — são genuinamente incompletos e devem ser reperguntados.
+    """
+    filled: list[str] = []
+    for key, label in BRIEFING_FIELDS:
+        if key in _DIGEST_SKIP:
+            continue
+        value = _clean_value(data.get(key))
+        if value is not None and not value.startswith("pendente ("):
+            filled.append(f"- {label}: {value}")
+    if not filled:
+        return None
+    linhas = ["Já informado pelo cliente:", *filled]
+    falta = [m for m in gate_missing_fields(data, history) if m != "__indicacao__"]
+    if falta:
+        linhas.append("Falta o essencial: " + ", ".join(falta) + ".")
+    return "\n".join(linhas)
 
 
 def ask_missing_fields(missing: list[str]) -> str:
@@ -534,6 +585,34 @@ async def notify_luciana_media(
     ok = await send_message(_owner_phone(), body)
     if not ok:
         logger.error("falha ao notificar Lu sobre mídia do cliente %s", customer_phone)
+    return ok
+
+
+async def notify_luciana_impasse(
+    customer_phone: str,
+    customer_name: str | None,
+) -> bool:
+    """Alerta a Lu de que a conversa travou num impasse (§6): a Malu ficou
+    repetindo a mesma pergunta sem o cliente avançar e passou a conversa pra ela.
+
+    Diferente do `notify_luciana_returning_client` (cliente PEDIU) e do
+    `notify_luciana_ai_down` (IA caiu): aqui a IA respondeu, mas em loop.
+    """
+    display = _format_phone_display(customer_phone)
+    name_part = f"*{customer_name}*" if customer_name else "Um cliente"
+
+    body = (
+        f"🔁 *Conversa travada — assume essa?*\n\n"
+        f"📱 {display}\n"
+        f"👤 {name_part}\n\n"
+        f"A Malu ficou repetindo a mesma pergunta e o cliente não avançou num "
+        f"ponto — ela passou a conversa pra você pra não insistir.\n\n"
+        f"👉 Responder no painel: {_panel_link(customer_phone)}"
+    )
+
+    ok = await send_message(_owner_phone(), body)
+    if not ok:
+        logger.error("falha ao notificar Lu sobre impasse do cliente %s", customer_phone)
     return ok
 
 

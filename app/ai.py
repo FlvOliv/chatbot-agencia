@@ -161,6 +161,30 @@ def _build_system_prompt(customer_context: dict[str, Any] | None) -> str:
         if system_extra:
             extras.append(f"\n\n## Ajustes da agência\n{system_extra}")
 
+    coleta_state = customer_context.get("coleta_state") if customer_context else None
+    if coleta_state:
+        extras.append(
+            "\n\n## 📋 Coleta até agora (confira ANTES de perguntar)\n"
+            f"{coleta_state}\n"
+            "**Não repergunte o que já está acima.** Se o cliente respondeu algo "
+            "vago a um campo OPCIONAL ('o mais barato', 'tanto faz', 'sem "
+            "preferência'), considere RESPONDIDO e siga. Pergunte só o que ainda "
+            "falta e caminhe pro fechamento."
+        )
+
+    if customer_context and customer_context.get("anti_loop"):
+        extras.append(
+            "\n\n## ⚠️ NÃO repita a pergunta\n"
+            "Você acabou de fazer praticamente a MESMA pergunta que o cliente ainda "
+            "não respondeu. **Não repita.** Se o ponto for OPCIONAL (aeroporto de "
+            "preferência, forma de pagamento, preferência de voo, motivo da viagem, "
+            "orçamento), registre como 'sem preferência' / 'a confirmar com a Lu' e "
+            "**AVANCE**: pergunte o próximo dado que ainda falta ou, se já tem o "
+            "essencial, finalize o briefing. Só insista — uma vez, com outras "
+            "palavras — se for dado OBRIGATÓRIO: datas de ida/volta ou quantidade "
+            "de passageiros."
+        )
+
     if customer_context and customer_context.get("from_audio"):
         extras.append(
             "\n\n## Esta mensagem veio de um ÁUDIO transcrito\n"

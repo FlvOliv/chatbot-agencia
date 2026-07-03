@@ -28,6 +28,10 @@ os.environ.setdefault("APP_ENV", "development")
 # explicitamente via monkeypatch.
 os.environ.setdefault("CEREBRAS_API_KEY", "")
 os.environ.setdefault("MISTRAL_API_KEY", "")
+# Alavanca B (estado de coleta) DESLIGADA por padrão na suíte — evita que os
+# testes de fluxo disparem a extração extra por turno. Os testes de B ligam
+# explicitamente via monkeypatch em settings.coleta_state_enabled.
+os.environ.setdefault("COLETA_STATE_ENABLED", "false")
 
 import pytest
 import pytest_asyncio

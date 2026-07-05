@@ -30,9 +30,11 @@ from app.api import tick as tick_api
 from app.briefing import (
     ask_missing_fields,
     build_coleta_digest,
+    build_recap,
     extract_customer_name,
     gate_missing_fields,
     lead_columns_from_data,
+    merge_ficha,
     normalize_lead_data,
     notify_luciana,
     notify_luciana_ai_down,
@@ -67,12 +69,15 @@ from app.sanitize import price_guard, sanitize_outgoing
 from app.session import (
     STATE_AWAITING_INTENT,
     STATE_TRANSFERRED,
+    clear_coleta_state,
     clear_history,
     clear_state,
     close_redis,
+    get_coleta_state,
     get_history,
     get_redis,
     get_state,
+    save_coleta_state,
     save_history,
     set_state,
 )
@@ -140,9 +145,12 @@ _LOOP_MIN_LEN = 40
 # GRU/CGH/VCP?" 3× do cenário S4 da conformidade). Pergunta normalizada menor
 # que _QUESTION_MIN_LEN é cortesia ("tudo bem?"), não coleta; trecho contíguo
 # idêntico >= _QUESTION_MIN_OVERLAP entre duas perguntas marca a mesma pergunta
-# re-embutida numa frase composta diferente.
+# re-embutida numa frase composta diferente. 25 (era 30): no caso real de 05/07
+# o modelo parafraseou a MESMA pergunta mantendo só "…a primeira quinzena de
+# agosto" (29 chars contíguos, pontuação diferente ao redor) e escapou do
+# limiar — a 5ª repetição de "qual dia exato" passou batida ao vivo.
 _QUESTION_MIN_LEN = 15
-_QUESTION_MIN_OVERLAP = 30
+_QUESTION_MIN_OVERLAP = 25
 
 
 @asynccontextmanager
@@ -461,6 +469,7 @@ async def _process_text_message(
         logger.info("exit command from %s — closing session", phone)
         await clear_history(phone)
         await clear_state(phone)
+        await clear_coleta_state(phone)
         await cancel_reminders(phone)
         try:
             await send_message(phone, EXIT_REPLY)
@@ -575,15 +584,37 @@ async def _process_text_message(
     # 1 extração por turno). Reusado no gate de finalização (mesma history), então
     # não há extração dobrada nos turnos que fecham a coleta.
     lead_data_cache: dict[str, Any] | None = None
+    ficha_fresca = False  # a extração DESTE turno funcionou (não é ficha antiga)
     coleta_state: str | None = None
     if not is_first_turn and settings.coleta_state_enabled:
+        raw_state = None
         try:
             raw_state = await extract_lead_data(history)
-            if raw_state:
-                lead_data_cache = normalize_lead_data(raw_state)
-                coleta_state = build_coleta_digest(lead_data_cache, history)
         except Exception:
             logger.exception("coleta_state: extração falhou para %s", phone)
+        if raw_state:
+            # Merge com a ficha acumulada: a extração re-lê tudo a cada turno e
+            # oscila (campo capturado some no turno seguinte) — acumular garante
+            # que dado dito 1× não se perde e o gate não repergunta.
+            lead_data_cache = merge_ficha(
+                await get_coleta_state(phone), normalize_lead_data(raw_state)
+            )
+            ficha_fresca = True
+            await save_coleta_state(phone, lead_data_cache)
+        else:
+            # Resiliência (05/07): extração morta (pico/cota — Groq 429 e cadeia
+            # fallback instável, visto ao vivo) deixava digest, nudge e gate sem
+            # NADA — a Malu voava às cegas e reperguntava tudo. A última ficha
+            # BOA persistida degrada isso pra "estado de 1-2 turnos atrás", que
+            # ainda preserva o anti-repergunta e o tipo de atendimento.
+            lead_data_cache = await get_coleta_state(phone)
+            if lead_data_cache is not None:
+                logger.warning(
+                    "coleta_state: extração fora p/ %s — usando ficha persistida",
+                    phone,
+                )
+        if lead_data_cache is not None:
+            coleta_state = build_coleta_digest(lead_data_cache, history)
 
     customer_context = {
         "name": customer_name,
@@ -611,9 +642,13 @@ async def _process_text_message(
     # loop). O bloco do modelo é só GATILHO — o briefing da Lu nasce de
     # render_briefing(data) —, então dá pra fechar sem a cooperação dele; a
     # resposta ao cliente vira o fechamento padrão (_build_closing_reply).
+    # Só fecha com ficha DESTE turno (ficha_fresca): a persistida pode estar 1
+    # turno atrás da última fala do cliente — fechar por ela arriscaria ignorar
+    # uma correção recém-dita. (O fecho via "## Resumo" do modelo segue valendo.)
     if (
         not briefing_block
         and not wants_transfer
+        and ficha_fresca
         and lead_data_cache is not None
         and not gate_missing_fields(lead_data_cache, history)
     ):
@@ -659,7 +694,7 @@ async def _process_text_message(
                     if lead_data_cache is not None:
                         falta = gate_missing_fields(lead_data_cache, history)
                         if falta:
-                            nudge = ask_missing_fields(falta)
+                            nudge = ask_missing_fields(falta, lead_data_cache)
                     if nudge is not None and not _too_similar(nudge, previous):
                         logger.info(
                             "anti-loop: repetição persistente p/ %s — nudge "
@@ -701,7 +736,7 @@ async def _process_text_message(
             falta = gate_missing_fields(data, history) if data is not None else []
             if falta:
                 base = customer_reply.replace("💛", "").rstrip()
-                customer_reply = f"{base}\n\n{ask_missing_fields(falta)}"
+                customer_reply = f"{base}\n\n{ask_missing_fields(falta, data)}"
 
     if wants_transfer:
         await _transfer_to_lu(phone, user_text, customer_reply, customer_name)
@@ -711,12 +746,26 @@ async def _process_text_message(
     # GATE de completude: não fecha lead com data vaga, sem passageiros ou sem
     # ter perguntado a indicação (mínimo crítico). Extrai/normaliza 1× e reusa.
     if briefing_block:
-        # Reusa a extração da Alavanca B (mesma history); senão extrai agora.
-        if lead_data_cache is not None:
+        # Reusa a extração da Alavanca B quando é DESTE turno; senão extrai
+        # agora. Se a extração cair, cai na ficha persistida: gate com dados de
+        # 1 turno atrás ainda sabe o TIPO — sobre {} ele nem sabe que é cruzeiro
+        # e volta a cobrar ida/volta (o "modo voo" real das 15:30 de 05/07).
+        if lead_data_cache is not None and ficha_fresca:
             lead_data = lead_data_cache
         else:
-            raw = await extract_lead_data(history)
-            lead_data = normalize_lead_data(raw) if raw else None
+            raw = None
+            try:
+                raw = await extract_lead_data(history)
+            except Exception:
+                logger.exception("extração no fecho falhou p/ %s", phone)
+            if raw:
+                lead_data = merge_ficha(
+                    await get_coleta_state(phone), normalize_lead_data(raw)
+                )
+                if settings.coleta_state_enabled:
+                    await save_coleta_state(phone, lead_data)
+            else:
+                lead_data = lead_data_cache  # ficha persistida (ou None)
         # GATE de completude — fail-CLOSED: se a extração (2ª chamada de IA) caiu
         # (None ou {}), NÃO liberar o fecho. Roda o gate sobre {} → devolve o
         # mínimo crítico a confirmar. Antes era fail-OPEN (else []): um pico que
@@ -731,7 +780,7 @@ async def _process_text_message(
             # segue coletando. (briefing_block=None reaproveita o caminho normal:
             # salva histórico, agenda lembrete, e o gate re-checa no próximo turno.)
             logger.info("gate barrou finalização p/ %s — faltam: %s", phone, missing)
-            customer_reply = ask_missing_fields(missing)
+            customer_reply = ask_missing_fields(missing, lead_data)
             briefing_block = None
         else:
             numero = await _finalize_lead(phone, history, briefing_block, lead_data)
@@ -747,13 +796,16 @@ async def _process_text_message(
             )
             # Fechamento controlado SEMPRE — CTA (Instagram + grupo VIP) em toda
             # finalização de cotação, não só quando o modelo não escreve nada.
-            customer_reply = _build_closing_reply(numero)
+            customer_reply = _build_closing_reply(numero, lead_data)
 
             # Coleta concluída → Malu se CALA e o lead fica aguardando a Lu cotar.
             # Sem isso, cada "ok/obrigado" do cliente faz o modelo re-emitir o
             # briefing → lead + protocolo DUPLICADOS a cada mensagem (bug grave).
+            # A ficha morre junto — não vaza pra uma próxima cotação na mesma
+            # janela de sessão.
             await set_state(phone, STATE_TRANSFERRED)
             await cancel_reminders(phone)
+            await clear_coleta_state(phone)
 
     history.append({"role": "assistant", "content": customer_reply})
     await save_history(phone, history)
@@ -937,12 +989,16 @@ async def _handle_media_message(
     await asyncio.gather(send_task, audit_task, return_exceptions=True)
 
 
-def _build_closing_reply(numero: int | None) -> str:
+def _build_closing_reply(
+    numero: int | None, data: dict[str, Any] | None = None
+) -> str:
     """Mensagem de fechamento ao cliente em toda finalização de cotação.
 
     O CTA (Instagram + grupo VIP) vai SEMPRE — antes só ia quando o modelo não
     escrevia nada junto do briefing. Mensagem controlada e única por cotação
-    (boa pra qualidade Meta). Anexa o protocolo (#1001...) quando houver.
+    (boa pra qualidade Meta). Anexa o protocolo (#1001...) quando houver e, com
+    `data`, um recap do que foi anotado — o cliente vê que a Malu capturou tudo
+    (e um erro de captura aparece AGORA, não quando a Lu cotar errado).
     """
     # Marca por agência (B4): usa os links do tenant atual quando houver; sem
     # tenant/brand (testes, cron) cai no texto padrão da Lu — comportamento
@@ -963,6 +1019,10 @@ def _build_closing_reply(numero: int | None) -> str:
         )
     else:
         reply = COLETA_CONCLUIDA_REPLY
+    recap = build_recap(data) if data else None
+    if recap:
+        # Os dois textos-base começam com "Recebi tudo!" — o recap entra ali.
+        reply = reply.replace("Recebi tudo!", f"Recebi tudo! Anotei: {recap}.", 1)
     if numero is not None:
         reply = reply.rstrip() + f"\n\n🔖 *Protocolo da sua solicitação:* #{numero}"
     return reply

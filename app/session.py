@@ -210,3 +210,57 @@ async def clear_state(phone: str) -> None:
         await client.delete(_state_key(phone))
     except Exception:
         logger.exception("redis clear_state failed for %s", phone)
+
+
+# ---------------------------------------------------------------------------
+# Ficha da coleta — última extração BOA persistida (resiliência da Alavanca B)
+# ---------------------------------------------------------------------------
+# A extração por turno morre sob pico/cota (visto ao vivo em 05/07: Groq 429 →
+# cadeia fallback instável → ficha None → digest/nudge/gate voando às cegas).
+# A ficha persistida degrada isso pra "estado de 1-2 turnos atrás", que ainda
+# preserva o anti-repergunta e o gate por tipo. Mesmo TTL da sessão — caem
+# juntas quando o cliente some.
+
+
+def _coleta_key(phone: str) -> str:
+    return f"malu:coleta:{phone}"
+
+
+async def get_coleta_state(phone: str) -> dict[str, Any] | None:
+    """Última ficha de coleta persistida (None se não houver ou o Redis falhar)."""
+    client = get_redis()
+    try:
+        raw = await client.get(_coleta_key(phone))
+    except Exception:
+        logger.exception("redis get_coleta_state failed for %s", phone)
+        return None
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("invalid JSON in coleta_state %s — ignorando", phone)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+async def save_coleta_state(phone: str, data: dict[str, Any]) -> None:
+    """Persiste a ficha de coleta com o TTL da sessão."""
+    client = get_redis()
+    try:
+        await client.set(
+            _coleta_key(phone),
+            json.dumps(data, ensure_ascii=False),
+            ex=settings.session_ttl_seconds,
+        )
+    except Exception:
+        logger.exception("redis save_coleta_state failed for %s", phone)
+
+
+async def clear_coleta_state(phone: str) -> None:
+    """Remove a ficha (fim da coleta ou /sair — não vaza pra próxima cotação)."""
+    client = get_redis()
+    try:
+        await client.delete(_coleta_key(phone))
+    except Exception:
+        logger.exception("redis clear_coleta_state failed for %s", phone)

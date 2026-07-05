@@ -7,11 +7,13 @@ import pytest
 from app.briefing import (
     NAO_INFORMADO,
     ask_missing_fields,
+    build_recap,
     extract_briefing,
     extract_customer_name,
     gate_missing_fields,
     indicacao_foi_perguntada,
     lead_columns_from_data,
+    merge_ficha,
     normalize_lead_data,
     normalize_temp,
     parse_customer_whatsapp,
@@ -518,6 +520,139 @@ def test_gate_voo_nao_afetado_pela_excecao_cruzeiro() -> None:
     missing = gate_missing_fields(data, _INDIC_ASKED)
     assert "a data de ida" in missing
     assert "a data de volta (ou se é só ida)" in missing
+
+
+_MENU_TIPO = (
+    "Perfeito! ✈️ O que você está procurando para a sua viagem?\n\n"
+    "1. Passagens aéreas\n2. Passagem + hospedagem\n3. Pacote completo\n"
+    "4. Seguro viagem\n5. Aluguel de carro\n6. Passeios / Ingressos\n"
+    "7. Cruzeiro\n\nVocê pode escolher uma ou mais opções."
+)
+
+
+def test_gate_cruzeiro_detecta_escolha_sete_no_menu() -> None:
+    """Caso real (05/07): o cliente escolheu '7'/'sete' no MENU e nunca digitou
+    'cruzeiro'; a extração caiu (gate fail-closed sobre {}) → a única pista é a
+    escolha de menu na history. Sem ela o gate caía no modo voo e cobrava
+    ida/volta exatas — a mensagem das 15:30 do teste ao vivo."""
+    history = _INDIC_ASKED + [
+        {"role": "assistant", "content": _MENU_TIPO},
+        {"role": "user", "content": "sete"},
+        {"role": "user", "content": "quero nordeste, sair e voltar de santos"},
+    ]
+    missing = gate_missing_fields({}, history)
+    assert "a data de ida" not in missing
+    assert "a data de volta (ou se é só ida)" not in missing
+    assert "o período que você quer viajar" in missing
+
+
+def test_gate_menu_multiplas_opcoes_com_7_vale_cruzeiro() -> None:
+    """'quero a 1 e a 7' após o menu inclui cruzeiro → gate leniente de data."""
+    history = _INDIC_ASKED + [
+        {"role": "assistant", "content": _MENU_TIPO},
+        {"role": "user", "content": "quero a 1 e a 7"},
+    ]
+    missing = gate_missing_fields({}, history)
+    assert "a data de volta (ou se é só ida)" not in missing
+
+
+def test_gate_menu_sete_pessoas_nao_vira_cruzeiro() -> None:
+    """'somos sete pessoas' logo após o menu NÃO é escolha da opção 7 (tem
+    palavra fora do padrão de escolha) → segue o gate de voo, sem afrouxar."""
+    history = _INDIC_ASKED + [
+        {"role": "assistant", "content": _MENU_TIPO},
+        {"role": "user", "content": "somos sete pessoas"},
+    ]
+    missing = gate_missing_fields({}, history)
+    assert "a data de ida" in missing
+
+
+# ---------------------------------------------------------------------------
+# Recap pro cliente — "Anotei até aqui: ..." (05/07)
+# ---------------------------------------------------------------------------
+def test_build_recap_compacto_sem_rotulo_pendente() -> None:
+    """Recap mostra o que o cliente disse — inclusive período vago SEM o rótulo
+    interno 'pendente (...)', que é jargão do sistema, não fala de gente."""
+    data = normalize_lead_data(
+        {
+            "tipo_atendimento": "Cruzeiro",
+            "destino": "Nordeste",
+            "origem": "Santos",
+            "data_ida": "primeira quinzena de agosto",  # vira pendente(...)
+            "qtd_adultos": "6",
+            "qtd_criancas": "2",
+            "idades_criancas": "5 e 12",
+            "forma_pagamento": "Pix",
+        }
+    )
+    recap = build_recap(data)
+    assert recap is not None
+    assert "primeira quinzena de agosto" in recap
+    assert "pendente" not in recap
+    assert "saindo de Santos" in recap
+    assert "6 adultos + 2 crianças (5, 12 anos)" in recap
+    assert "Pix" in recap
+
+
+def test_build_recap_none_com_pouca_coisa() -> None:
+    """Menos de 2 itens → recap não acrescenta nada, melhor ficar sem."""
+    assert build_recap({}) is None
+    assert build_recap({"destino": "Paris"}) is None
+
+
+def test_ask_missing_fields_com_recap_prefixa_o_anotado() -> None:
+    """Com a ficha em mãos, a re-pergunta do gate deixa de ser 'seca': primeiro
+    mostra o que JÁ foi anotado (mata o 'já falei!'), depois pede o que falta."""
+    data = normalize_lead_data(
+        {"tipo_atendimento": "Cruzeiro", "origem": "Santos", "qtd_adultos": "6"}
+    )
+    msg = ask_missing_fields(["o período que você quer viajar"], data)
+    assert msg.startswith("Anotei até aqui: ")
+    assert "saindo de Santos" in msg
+    assert "só me confirma o período que você quer viajar? 💛" in msg
+
+
+def test_ask_missing_fields_sem_data_segue_igual() -> None:
+    """Compatibilidade: sem ficha, a frase é a mesma de antes (sem prefixo)."""
+    msg = ask_missing_fields(["a data de ida"])
+    assert msg.startswith("Antes de eu organizar")
+
+
+# ---------------------------------------------------------------------------
+# merge_ficha — campo capturado 1× nunca se perde (oscilação da extração)
+# ---------------------------------------------------------------------------
+def test_merge_ficha_preserva_campo_que_a_extracao_perdeu() -> None:
+    """Caso da sonda (05/07): 'primeira quinzena de dezembro' saiu de data_ida
+    num turno e foi parar em Observações no seguinte → sem acumulação o gate
+    voltava a pedir o período que a cliente já tinha dado."""
+    stored = normalize_lead_data(
+        {"tipo_atendimento": "Cruzeiro", "data_ida": "primeira quinzena de dezembro"}
+    )
+    fresh = normalize_lead_data(
+        {"tipo_atendimento": "Cruzeiro", "qtd_adultos": "2", "data_ida": None}
+    )
+    merged = merge_ficha(stored, fresh)
+    assert merged["data_ida"].startswith("pendente (")  # não se perdeu
+    assert merged["qtd_adultos"] == "2"  # o novo entrou
+
+
+def test_merge_ficha_valor_novo_concreto_vence() -> None:
+    """Cliente corrigiu a data → o valor novo (concreto) sobrescreve o antigo."""
+    stored = normalize_lead_data({"data_ida": "05/12"})
+    fresh = normalize_lead_data({"data_ida": "10/12"})
+    assert merge_ficha(stored, fresh)["data_ida"] == "10/12"
+
+
+def test_merge_ficha_pendente_nao_rebaixa_concreto() -> None:
+    """Extração oscilou pra vago num turno → o concreto já confirmado fica."""
+    stored = normalize_lead_data({"data_ida": "05/12"})
+    fresh = normalize_lead_data({"data_ida": "perto do feriado"})  # vira pendente
+    assert merge_ficha(stored, fresh)["data_ida"] == "05/12"
+
+
+def test_merge_ficha_sem_stored_devolve_fresh() -> None:
+    fresh = normalize_lead_data({"destino": "Recife"})
+    assert merge_ficha(None, fresh) == fresh
 
 
 # ---------------------------------------------------------------------------

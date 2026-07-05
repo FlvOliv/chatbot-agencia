@@ -90,6 +90,35 @@ def test_question_fixation_ignora_perguntas_diferentes() -> None:
     assert main._question_fixation(ADVANCE, history) is False
 
 
+# A fixação PARAFRASEADA do caso real de 05/07 (cruzeiro da tarde): "qual dia
+# exato" repetido 5× com o entorno mudando a cada turno — o maior trecho
+# contíguo comum caía pra 29 chars ("…a primeira quinzena de agosto") e
+# escapava do limiar antigo de 30. Transcrições literais do teste ao vivo.
+CRUISE_Q1 = (
+    "Qual dia exato de partida na primeira quinzena de agosto e quantos dias "
+    "deseja (5 ou 7) para o cruzeiro?"
+)
+CRUISE_Q2 = (
+    "Qual dia exato de partida na primeira quinzena de agosto?\n"
+    "E qual a duração que prefere: 5 dias ou 7 dias?"
+)
+CRUISE_Q3 = (
+    "Entendi, Flávio. Só para confirmar: qual dia exato da primeira quinzena "
+    "de agosto seria ideal para a partida?"
+)
+
+
+def test_question_fixation_pega_parafrase_do_caso_real() -> None:
+    history = [
+        {"role": "user", "content": "quero um cruzeiro pro nordeste"},
+        {"role": "assistant", "content": CRUISE_Q1},
+        {"role": "user", "content": "de cinco a sete dias, quero a melhor opcao"},
+        {"role": "assistant", "content": CRUISE_Q2},
+        {"role": "user", "content": "ja respondi"},
+    ]
+    assert main._question_fixation(CRUISE_Q3, history) is True
+
+
 def test_questions_of_ignora_cortesia_e_menu() -> None:
     qs = main._questions_of("Tudo bem? 1️⃣ Passagens aéreas\nQual a data de ida da sua viagem?")
     assert qs == ["qual a data de ida da sua viagem?"]

@@ -197,6 +197,36 @@ def normalize_lead_data(data: dict) -> dict:
     return out
 
 
+def merge_ficha(stored: dict | None, fresh: dict) -> dict:
+    """Acumula a ficha da coleta: campo capturado uma vez NUNCA se perde.
+
+    A extração re-lê a conversa inteira a cada turno e OSCILA (visto na sonda de
+    05/07: "primeira quinzena de dezembro" saiu de `data_ida` num turno e foi
+    parar em "Observações" no seguinte) — sem acumulação, o gate volta a pedir o
+    que o cliente já deu. Regras: valor novo não-nulo vence (cliente corrigiu);
+    nulo não apaga o que já foi dito; e um `pendente` novo NÃO rebaixa um valor
+    que já estava concreto (se o cliente mudou de ideia pra algo vago, a Malu
+    vai concretizar de novo e aí sim sobrescreve). Espera os dois lados JÁ
+    normalizados (normalize_lead_data).
+    """
+    if not stored:
+        return fresh
+    out = dict(stored)
+    for key, value in fresh.items():
+        novo = _clean_value(value)
+        if novo is None:
+            continue  # extração deste turno não viu o campo — não apaga
+        atual = _clean_value(out.get(key))
+        if (
+            atual is not None
+            and not atual.startswith("pendente (")
+            and novo.startswith("pendente (")
+        ):
+            continue  # não rebaixa concreto → vago
+        out[key] = value
+    return out
+
+
 def render_briefing(data: dict, customer_phone: str | None = None) -> str:
     """Monta o markdown do briefing pra Lu a partir dos dados ESTRUTURADOS.
 
@@ -291,6 +321,54 @@ def _mentions_oneway(history: list[dict]) -> bool:
     return False
 
 
+# Linha do menu de tipo de atendimento que oferece cruzeiro ("7. Cruzeiro").
+_MENU_CRUISE_LINE_RE = re.compile(r"7\.\s*cruzeiro", re.IGNORECASE)
+
+# Palavras "de enfeite" numa resposta de menu ("quero a opção 7, por favor").
+_MENU_PICK_FILLER = {
+    "quero", "queria", "a", "o", "e", "opcao", "opção", "opcoes", "opções",
+    "numero", "número", "item", "por", "favor", "pf", "so", "só", "essa",
+    "esse", "de", "ne", "né",
+}
+
+
+def _picked_cruise_from_menu(history: list[dict]) -> bool:
+    """True se o cliente escolheu a opção 7 (Cruzeiro) do menu SÓ pelo número.
+
+    Ponto cego real (05/07): o cliente respondeu "sete" ao menu e nunca digitou
+    "cruzeiro"; com a extração fora (gate fail-closed sobre `data={}`), a única
+    fonte era a history — e ela não tinha a palavra na fala do cliente, então o
+    gate tratou o cruzeiro como voo (voltou a exigir ida/volta exatas).
+    Pra contar como escolha, a 1ª fala do cliente após o menu precisa ser SÓ
+    uma escolha (números/números por extenso/conectivos) que inclua o 7 —
+    "somos sete pessoas" tem palavra fora do padrão e NÃO conta.
+    """
+    menu_offered = False
+    for msg in history:
+        content = str(msg.get("content") or "")
+        role = msg.get("role")
+        if role == "assistant":
+            menu_offered = _MENU_CRUISE_LINE_RE.search(content) is not None
+            continue
+        if role != "user" or not menu_offered:
+            continue
+        menu_offered = False  # só a 1ª fala do cliente após o menu conta
+        picked_seven = False
+        only_picks = True
+        for token in re.findall(r"[^\W_]+", content.lower()):
+            if token in _MENU_PICK_FILLER:
+                continue
+            n = int(token) if token.isdigit() else _NUM_WORDS.get(token)
+            if n is None or not 1 <= n <= 7:
+                only_picks = False
+                break
+            if n == 7:
+                picked_seven = True
+        if only_picks and picked_seven:
+            return True
+    return False
+
+
 def _is_cruise(data: dict, history: list[dict]) -> bool:
     """True se a cotação é de cruzeiro — o gate afrouxa a exigência de data.
 
@@ -298,8 +376,9 @@ def _is_cruise(data: dict, history: list[dict]) -> bool:
     e o cliente escolhe período (ex.: "primeira quinzena de dezembro") + duração.
     Exigir dd/mm exato como num voo gera loop (a Malu pede um dia que o cliente
     não tem como saber). Detecta pelo tipo de atendimento classificado OU por o
-    CLIENTE ter dito "cruzeiro" — a 2ª fonte cobre o fail-closed do dispatch
-    (gate roda sobre `data={}` quando a extração cai; aí só resta a history).
+    CLIENTE ter dito "cruzeiro" OU pela escolha "7"/"sete" no menu — as fontes
+    de history cobrem o fail-closed do dispatch (gate roda sobre `data={}`
+    quando a extração cai; aí só resta a history).
     """
     if _CRUISE_RE.search(str(data.get("tipo_atendimento") or "")):
         return True
@@ -308,7 +387,7 @@ def _is_cruise(data: dict, history: list[dict]) -> bool:
             str(msg.get("content") or "")
         ):
             return True
-    return False
+    return _picked_cruise_from_menu(history)
 
 
 def gate_missing_fields(data: dict, history: list[dict]) -> list[str]:
@@ -405,16 +484,90 @@ def build_coleta_digest(data: dict, history: list[dict]) -> str | None:
     return "\n".join(linhas)
 
 
-def ask_missing_fields(missing: list[str]) -> str:
+# Desembrulha o marcador interno de `_pendente` pra exibir ao CLIENTE o que ele
+# mesmo disse ("primeira quinzena de agosto"), sem o rótulo técnico.
+_PENDENTE_UNWRAP_RE = re.compile(r'^pendente \(cliente disse: "(.*)"\)$', re.DOTALL)
+
+
+def _display_value(value: str) -> str:
+    """Valor pronto pra mostrar ao cliente (pendente → fala original dele)."""
+    m = _PENDENTE_UNWRAP_RE.match(value)
+    return m.group(1) if m else value
+
+
+def _qtd(raw: str, singular: str, plural: str) -> str:
+    """"6" → "6 adultos"; valor não-numérico passa como veio + plural."""
+    try:
+        n = int(raw)
+    except ValueError:
+        return f"{raw} {plural}"
+    return f"{n} {singular if n == 1 else plural}"
+
+
+def build_recap(data: dict) -> str | None:
+    """Recap compacto do que o cliente JÁ informou — texto pro CLIENTE, não pra Lu.
+
+    Usado quando o gate pede um dado que falta ("Anotei até aqui: ...") e no
+    fechamento: mostra que nada se perdeu — a re-pergunta seca depois de meia
+    coleta respondida é o que gera o "já falei!". Valores `pendente` aparecem
+    como o cliente falou, sem o rótulo interno. Retorna None com menos de 2
+    itens (recap de 1 item não acrescenta nada).
+    """
+
+    def val(key: str) -> str | None:
+        v = _clean_value(data.get(key))
+        return _display_value(v) if v is not None else None
+
+    parts: list[str] = []
+    tipo = val("tipo_atendimento")
+    if tipo:
+        parts.append(tipo)
+    destino = val("destino")
+    if destino:
+        parts.append(destino)
+    origem = val("origem")
+    if origem:
+        parts.append(f"saindo de {origem}")
+    ida, volta = val("data_ida"), val("data_volta")
+    if ida and volta:
+        parts.append(f"ida {ida} e volta {volta}")
+    elif ida:
+        parts.append(ida)
+    adultos = val("qtd_adultos")
+    if adultos:
+        pax = _qtd(adultos, "adulto", "adultos")
+        criancas = val("qtd_criancas")
+        if criancas and criancas != "0":
+            pax += f" + {_qtd(criancas, 'criança', 'crianças')}"
+            idades = val("idades_criancas")
+            if idades:
+                pax += f" ({idades} anos)"
+        parts.append(pax)
+    pagamento = val("forma_pagamento")
+    if pagamento:
+        parts.append(pagamento)
+    if len(parts) < 2:
+        return None
+    return " · ".join(parts)
+
+
+def ask_missing_fields(missing: list[str], data: dict | None = None) -> str:
     """Frase determinística e calorosa pedindo o que falta antes de fechar.
 
     Prioriza dados duros (datas/passageiros) num turno; a indicação fica pro
-    próximo (é a última pergunta). Um emoji só (regra de formatação)."""
+    próximo (é a última pergunta). Com `data`, antecede o recap do que já está
+    anotado — o cliente vê que NÃO foi ignorado. Um emoji só (regra de
+    formatação)."""
+    recap = build_recap(data) if data else None
+    prefixo = f"Anotei até aqui: {recap}.\n\n" if recap else ""
     hard = [m for m in missing if m != "__indicacao__"]
     if hard:
         pedido = hard[0] if len(hard) == 1 else ", ".join(hard[:-1]) + f" e {hard[-1]}"
-        return f"Antes de eu organizar tudo pra Lu, só me confirma {pedido}? 💛"
-    return "Ah, e pra fechar: alguém indicou a Lu pra você? Se sim, me conta quem foi. 💛"
+        return f"{prefixo}Antes de eu organizar tudo pra Lu, só me confirma {pedido}? 💛"
+    return (
+        f"{prefixo}Ah, e pra fechar: alguém indicou a Lu pra você? "
+        "Se sim, me conta quem foi. 💛"
+    )
 
 
 def split_reply_and_briefing(reply: str) -> tuple[str, str | None]:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import date
 from typing import TYPE_CHECKING
 
 from app.config import settings
@@ -197,6 +198,36 @@ def normalize_lead_data(data: dict) -> dict:
     return out
 
 
+# Linha de campo do bloco: "**Data de ida:** 20/12" (tolera 1 ou 2 asteriscos).
+_BRIEFING_LINE_RE = re.compile(r"^\*{1,2}\s*([^:*]+?)\s*:\s*\*{0,2}\s*(.*)$")
+
+
+def parse_briefing_block(block: str | None) -> dict:
+    """Converte o bloco `## Resumo` ESCRITO PELO MODELO de volta em dict.
+
+    Rede de segurança do fecho: quando a extração JSON cai (cadeia de IA
+    esgotada — 429 em todos os provedores, visto ao vivo em 05/07), o próprio
+    bloco que o modelo emitiu É material estruturado ("**Rótulo:** valor" com
+    os rótulos canônicos de BRIEFING_FIELDS) e o gate consegue validar em cima
+    dele — sem isso o gate rodava sobre `{}` e pedia TUDO de novo em loop.
+    "Não informado"/placeholders viram None depois, no `_clean_value`. Parse
+    determinístico, custo zero de IA.
+    """
+    if not block:
+        return {}
+    label_to_key = {label.lower(): key for key, label in BRIEFING_FIELDS}
+    label_to_key["temperatura do lead"] = TEMPERATURA_KEY
+    out: dict = {}
+    for line in block.splitlines():
+        m = _BRIEFING_LINE_RE.match(line.strip())
+        if not m:
+            continue
+        key = label_to_key.get(m.group(1).strip().lower())
+        if key and m.group(2).strip():
+            out[key] = m.group(2).strip()
+    return out
+
+
 def merge_ficha(stored: dict | None, fresh: dict) -> dict:
     """Acumula a ficha da coleta: campo capturado uma vez NUNCA se perde.
 
@@ -287,6 +318,28 @@ def _pendente_ou_vazio(value: object) -> bool:
     quantidade não-numérica marcada por normalize_lead_data)."""
     v = _clean_value(value)
     return v is None or v.startswith("pendente (")
+
+
+# Data completa no PASSADO não serve pra cotação (visto ao vivo 05/07 18:41: o
+# modelo propôs ida "02/07/2026" com HOJE = 05/07/2026 e o cliente confirmou no
+# piloto automático — a Lu receberia um lead incotável). Só julga com ANO
+# explícito: "02/07" solto pode ser o ano que vem, não dá pra condenar.
+_FULL_DATE_RE = re.compile(r"\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})\b")
+
+
+def _data_passada(value: object) -> bool:
+    """True se o valor traz uma data dd/mm/aaaa já passada (ou impossível)."""
+    v = _clean_value(value)
+    if v is None:
+        return False
+    m = _FULL_DATE_RE.search(v)
+    if not m:
+        return False
+    try:
+        d = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+    except ValueError:
+        return True  # "31/02/2026" — data impossível também não serve
+    return d < date.today()
 
 
 def indicacao_foi_perguntada(history: list[dict]) -> bool:
@@ -413,7 +466,9 @@ def gate_missing_fields(data: dict, history: list[dict]) -> list[str]:
         if _clean_value(data.get("data_ida")) is None:
             missing.append("o período que você quer viajar")
     else:
-        if _pendente_ou_vazio(data.get("data_ida")):
+        if _pendente_ou_vazio(data.get("data_ida")) or _data_passada(
+            data.get("data_ida")
+        ):
             missing.append("a data de ida")
         volta = _clean_value(data.get("data_volta"))
         # Só-ida detectado pelo campo (se o extrator marcou) OU pela fala do
@@ -421,7 +476,10 @@ def gate_missing_fields(data: dict, history: list[dict]) -> list[str]:
         is_oneway = (
             volta is not None and _ONEWAY_RE.search(volta) is not None
         ) or _mentions_oneway(history)
-        if not is_oneway and _pendente_ou_vazio(data.get("data_volta")):
+        if not is_oneway and (
+            _pendente_ou_vazio(data.get("data_volta"))
+            or _data_passada(data.get("data_volta"))
+        ):
             missing.append("a data de volta (ou se é só ida)")
     adultos = _clean_value(data.get("qtd_adultos"))
     if _pendente_ou_vazio(adultos) or adultos == "0":

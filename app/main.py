@@ -41,6 +41,7 @@ from app.briefing import (
     notify_luciana_impasse,
     notify_luciana_media,
     notify_luciana_returning_client,
+    parse_briefing_block,
     parse_lead_temp,
     render_briefing,
     save_lead,
@@ -747,9 +748,11 @@ async def _process_text_message(
     # ter perguntado a indicação (mínimo crítico). Extrai/normaliza 1× e reusa.
     if briefing_block:
         # Reusa a extração da Alavanca B quando é DESTE turno; senão extrai
-        # agora. Se a extração cair, cai na ficha persistida: gate com dados de
-        # 1 turno atrás ainda sabe o TIPO — sobre {} ele nem sabe que é cruzeiro
-        # e volta a cobrar ida/volta (o "modo voo" real das 15:30 de 05/07).
+        # agora. Se a cadeia de IA estiver esgotada (429 em todo provedor —
+        # visto ao vivo em 05/07 18:42), o PRÓPRIO bloco que o modelo emitiu
+        # vira fonte via parse determinístico, por cima da ficha persistida —
+        # o gate valida do mesmo jeito (data vaga/passada segue barrada). Sem
+        # isso o gate rodava sobre {} e pedia TUDO de novo.
         if lead_data_cache is not None and ficha_fresca:
             lead_data = lead_data_cache
         else:
@@ -758,14 +761,15 @@ async def _process_text_message(
                 raw = await extract_lead_data(history)
             except Exception:
                 logger.exception("extração no fecho falhou p/ %s", phone)
+            base = merge_ficha(
+                lead_data_cache, normalize_lead_data(parse_briefing_block(briefing_block))
+            )
             if raw:
-                lead_data = merge_ficha(
-                    await get_coleta_state(phone), normalize_lead_data(raw)
-                )
-                if settings.coleta_state_enabled:
-                    await save_coleta_state(phone, lead_data)
+                lead_data = merge_ficha(base, normalize_lead_data(raw))
             else:
-                lead_data = lead_data_cache  # ficha persistida (ou None)
+                lead_data = base or None
+            if lead_data and settings.coleta_state_enabled:
+                await save_coleta_state(phone, lead_data)
         # GATE de completude — fail-CLOSED: se a extração (2ª chamada de IA) caiu
         # (None ou {}), NÃO liberar o fecho. Roda o gate sobre {} → devolve o
         # mínimo crítico a confirmar. Antes era fail-OPEN (else []): um pico que
@@ -779,8 +783,21 @@ async def _process_text_message(
             # Coleta furada (ou não-validável) → NÃO finaliza; pede o que falta e
             # segue coletando. (briefing_block=None reaproveita o caminho normal:
             # salva histórico, agenda lembrete, e o gate re-checa no próximo turno.)
+            nudge = ask_missing_fields(missing, lead_data)
+            previous = _last_assistant(history)
+            if previous is not None and _too_similar(nudge, previous):
+                # O MESMO nudge já foi a última fala e o cliente respondeu —
+                # sem extração viva não há como validar a resposta; repetir
+                # verbatim é o loop real de 05/07 18:42/18:43 (o nudge do gate
+                # não passa pelo anti-loop do modelo). Impasse (§6): a Lu
+                # assume com o histórico completo.
+                logger.info(
+                    "gate re-barrou com o mesmo nudge p/ %s — Lu assume", phone
+                )
+                await _impasse_to_lu(phone, user_text, customer_name)
+                return
             logger.info("gate barrou finalização p/ %s — faltam: %s", phone, missing)
-            customer_reply = ask_missing_fields(missing, lead_data)
+            customer_reply = nudge
             briefing_block = None
         else:
             numero = await _finalize_lead(phone, history, briefing_block, lead_data)

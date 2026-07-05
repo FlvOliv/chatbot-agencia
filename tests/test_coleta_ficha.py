@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from app import main
-from app.briefing import normalize_lead_data
+from app.briefing import normalize_lead_data, render_briefing
 from app.session import clear_coleta_state, get_coleta_state, save_coleta_state
 
 # Resposta neutra do modelo — diferente da última fala da Malu (não é loop).
@@ -188,3 +188,105 @@ async def test_ficha_persistida_nao_dispara_fecho_deterministico(monkeypatch) ->
 
     assert "finalized" not in calls  # fecho automático NÃO disparou
     assert calls["sent"] == REPLY  # a resposta normal do modelo seguiu
+
+
+@pytest.mark.asyncio
+async def test_fecho_com_extracao_morta_usa_bloco_do_modelo(monkeypatch) -> None:
+    """Cadeia de IA esgotada no fecho (extração lança) mas o modelo emitiu um
+    bloco COMPLETO → o parse determinístico do próprio bloco alimenta o gate e
+    o lead FECHA — antes, o gate rodava sobre {} e pedia tudo de novo em loop
+    (caso real de 05/07 18:42)."""
+    calls: dict[str, object] = {}
+    block_data = {
+        "tipo_atendimento": "Passagens aéreas",
+        "origem": "São Paulo",
+        "destino": "Recife",
+        "data_ida": "20/12/2030",
+        "data_volta": "27/12/2030",
+        "qtd_adultos": "2",
+        "indicado_por": "Ana",
+    }
+
+    async def route_fn(history, customer_context=None):  # noqa: ANN001
+        return (
+            f"Perfeito, fechado!\n\n{render_briefing(block_data, '5511911110004')}",
+            "groq/llama",
+        )
+
+    _wire(monkeypatch, calls, route_fn)
+
+    async def dead_extract(history):  # noqa: ANN001
+        raise RuntimeError("429 em toda a cadeia")
+
+    async def fake_finalize(phone, history, block, data):  # noqa: ANN001
+        calls["finalized_data"] = data
+        return 1042
+
+    async def fake_push(*a, **k):  # noqa: ANN001, ANN003
+        pass
+
+    monkeypatch.setattr(main, "extract_lead_data", dead_extract)
+    monkeypatch.setattr(main, "_finalize_lead", fake_finalize)
+    monkeypatch.setattr(main, "send_push_to_all", fake_push)
+
+    await main._process_text_message(
+        "5511911110004", "pode fechar", "Flávio", from_audio=True
+    )
+
+    data = calls.get("finalized_data")
+    assert data is not None and data["data_ida"] == "20/12/2030"  # fechou pelo bloco
+    assert calls["state"] == main.STATE_TRANSFERRED  # e silenciou
+    assert "Anotei:" in str(calls["sent"])  # recap no fechamento
+
+
+@pytest.mark.asyncio
+async def test_nudge_repetido_no_gate_vira_impasse(monkeypatch) -> None:
+    """O nudge do gate não passa pelo anti-loop do modelo: sem esta trava ele
+    repetia VERBATIM a cada turno (loop real de 05/07 18:42/18:43). Se o mesmo
+    nudge já foi a última fala e o cliente respondeu, não há como validar sem
+    extração → a Lu assume (§6)."""
+    calls: dict[str, object] = {}
+    nudge_prev = main.ask_missing_fields(
+        [
+            "a data de ida",
+            "a data de volta (ou se é só ida)",
+            "quantas pessoas vão viajar",
+        ]
+    )
+
+    async def route_fn(history, customer_context=None):  # noqa: ANN001
+        return ("Perfeito, vou organizar tudo!\n## Resumo", "groq/llama")
+
+    _wire(monkeypatch, calls, route_fn)
+
+    async def fake_get_history(phone):  # noqa: ANN001
+        return [
+            {"role": "user", "content": "quero cotar uma viagem"},
+            {"role": "assistant", "content": "Alguém indicou a Lu pra você? 💛"},
+            {"role": "user", "content": "ninguém"},
+            {"role": "assistant", "content": nudge_prev},  # nudge JÁ foi a última fala
+        ]
+
+    def fake_split(reply):  # noqa: ANN001
+        # Bloco sem campos parseáveis — o parse devolve {} e o gate segue vazio.
+        return "Perfeito, vou organizar tudo!", "## Resumo da Solicitação"
+
+    async def dead_extract(history):  # noqa: ANN001
+        return None
+
+    async def fake_notify(phone, name):  # noqa: ANN001
+        calls["notified"] = True
+        return True
+
+    monkeypatch.setattr(main, "get_history", fake_get_history)
+    monkeypatch.setattr(main, "split_reply_and_briefing", fake_split)
+    monkeypatch.setattr(main, "extract_lead_data", dead_extract)
+    monkeypatch.setattr(main, "notify_luciana_impasse", fake_notify)
+
+    await main._process_text_message(
+        "5511911110005", "é ida e volta, vou sozinho", "Flávio", from_audio=True
+    )
+
+    assert calls["state"] == main.STATE_TRANSFERRED  # Malu silenciou
+    assert calls["sent"] == main.IMPASSE_REPLY  # cliente ouviu que a Lu assume
+    assert calls.get("notified") is True  # Lu avisada com o contexto

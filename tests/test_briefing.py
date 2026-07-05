@@ -15,6 +15,7 @@ from app.briefing import (
     lead_columns_from_data,
     merge_ficha,
     normalize_lead_data,
+    parse_briefing_block,
     normalize_temp,
     parse_customer_whatsapp,
     parse_lead_temp,
@@ -653,6 +654,80 @@ def test_merge_ficha_pendente_nao_rebaixa_concreto() -> None:
 def test_merge_ficha_sem_stored_devolve_fresh() -> None:
     fresh = normalize_lead_data({"destino": "Recife"})
     assert merge_ficha(None, fresh) == fresh
+
+
+# ---------------------------------------------------------------------------
+# Data no passado — lead incotável não fecha (05/07)
+# ---------------------------------------------------------------------------
+def test_gate_barra_data_no_passado() -> None:
+    """Caso real (05/07 18:41): o modelo propôs ida '02/07/2026' com HOJE =
+    05/07/2026 e o cliente confirmou no piloto automático — a Lu receberia um
+    lead impossível de cotar."""
+    data = normalize_lead_data(
+        {
+            "tipo_atendimento": "Passagens aéreas",
+            "data_ida": "02/07/2020",
+            "data_volta": "09/07/2020",
+            "qtd_adultos": "2",
+        }
+    )
+    missing = gate_missing_fields(data, _INDIC_ASKED)
+    assert "a data de ida" in missing
+    assert "a data de volta (ou se é só ida)" in missing
+
+
+def test_gate_data_sem_ano_nao_e_condenada() -> None:
+    """'02/07' sem ano pode ser o ano que vem — não dá pra condenar como passada."""
+    data = normalize_lead_data(
+        {
+            "tipo_atendimento": "Passagens aéreas",
+            "data_ida": "02/07",
+            "data_volta": "09/07",
+            "qtd_adultos": "2",
+        }
+    )
+    assert gate_missing_fields(data, _INDIC_ASKED) == []
+
+
+# ---------------------------------------------------------------------------
+# parse_briefing_block — o bloco do modelo como fonte quando a extração cai
+# ---------------------------------------------------------------------------
+def test_parse_briefing_block_roundtrip_do_render() -> None:
+    """O bloco gerado por render_briefing volta a virar dict com as chaves
+    canônicas — é a fonte do gate quando a cadeia de IA está esgotada."""
+    data = {
+        "tipo_atendimento": "Passagens aéreas",
+        "origem": "São Paulo",
+        "destino": "Recife",
+        "data_ida": "20/12/2030",
+        "data_volta": "27/12/2030",
+        "qtd_adultos": "2",
+        "indicado_por": "Ana",
+    }
+    parsed = parse_briefing_block(render_briefing(data, "5511999999999"))
+    assert parsed["data_ida"] == "20/12/2030"
+    assert parsed["destino"] == "Recife"
+    assert parsed["qtd_adultos"] == "2"
+    assert parsed["indicado_por"] == "Ana"
+    # "Não informado" é capturado como texto — vira None depois, no _clean_value.
+    assert parsed["orcamento"] == NAO_INFORMADO
+
+
+def test_parse_briefing_block_tolera_asterisco_simples() -> None:
+    """Modelo em modo WhatsApp às vezes usa *um* asterisco — o parse aceita."""
+    block = (
+        "## Resumo da Solicitação de Cotação\n"
+        "*Destino:* Lisboa\n"
+        "*Quantidade de adultos:* 2"
+    )
+    parsed = parse_briefing_block(block)
+    assert parsed["destino"] == "Lisboa"
+    assert parsed["qtd_adultos"] == "2"
+
+
+def test_parse_briefing_block_sem_campos() -> None:
+    assert parse_briefing_block(None) == {}
+    assert parse_briefing_block("## Resumo da Solicitação") == {}
 
 
 # ---------------------------------------------------------------------------

@@ -52,6 +52,78 @@ async def test_ai_failure_silences_and_calls_lu(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_price_guard_no_primeiro_turno_anexa_proxima_pergunta(monkeypatch) -> None:
+    """Refino 5 (05/07): o price_guard SUBSTITUI a resposta inteira pela frase
+    defensiva — no 1º contato do S3 o cliente recebeu SÓ a frase, sem pergunta,
+    e a conversa morreu. Agora o pipeline anexa o pedido do mínimo crítico que
+    falta (extraindo na hora, já que no 1º turno a Alavanca B não roda)."""
+    calls: dict[str, object] = {}
+
+    class _FakeDB:
+        async def commit(self):  # noqa: ANN001
+            return None
+
+    class _FakeSession:
+        async def __aenter__(self):  # noqa: ANN001
+            return _FakeDB()
+
+        async def __aexit__(self, *a):  # noqa: ANN001
+            return False
+
+    async def fake_get_state(phone):  # noqa: ANN001
+        return ""
+
+    async def fake_get_history(phone):  # noqa: ANN001
+        return []  # primeiro turno
+
+    async def fake_get_or_create(phone, profile, db):  # noqa: ANN001
+        return SimpleNamespace(display_name="Diego")
+
+    async def fake_reserva(phone, db):  # noqa: ANN001
+        return False
+
+    async def fake_extract(history):  # noqa: ANN001
+        calls["extracted"] = True
+        return {"destino": "Paris", "origem": "SP", "data_ida": "mês que vem"}
+
+    async def fake_route(history, customer_context=None):  # noqa: ANN001
+        return ("Sai por uns R$ 8.000 dependendo da data!", "groq/llama")
+
+    async def fake_send(to, text):  # noqa: ANN001
+        calls["sent"] = text
+        return True
+
+    async def noop(*a, **k):  # noqa: ANN001, ANN003
+        return None
+
+    monkeypatch.setattr(main, "get_state", fake_get_state)
+    monkeypatch.setattr(main, "get_history", fake_get_history)
+    monkeypatch.setattr(main, "SessionLocal", _FakeSession)
+    monkeypatch.setattr(main, "get_or_create_cliente", fake_get_or_create)
+    monkeypatch.setattr(main, "has_reserva_ativa", fake_reserva)
+    monkeypatch.setattr(main, "extract_lead_data", fake_extract)
+    monkeypatch.setattr(main, "route_and_ask", fake_route)
+    monkeypatch.setattr(main, "send_message", fake_send)
+    monkeypatch.setattr(main, "save_history", noop)
+    monkeypatch.setattr(main, "_persist_conversation", noop)
+    monkeypatch.setattr(main, "schedule_callbacks", noop)
+    monkeypatch.setattr(main, "cancel_reminders", noop)
+
+    await main._process_text_message(
+        "5511900000020", "quero Paris mês que vem, quanto fica?", "Diego", from_audio=True
+    )
+
+    sent = str(calls["sent"])
+    assert "R$" not in sent  # o valor nunca vaza
+    assert "tarifas mudam em tempo real" in sent  # frase defensiva mantida
+    # A coleta segue: pediu o mínimo crítico (data vaga → pede data concreta)
+    assert calls.get("extracted") is True
+    assert "só me confirma" in sent
+    assert "data de ida" in sent
+    assert sent.count("💛") == 1  # sem emoji duplicado (defensiva + nudge)
+
+
+@pytest.mark.asyncio
 async def test_audio_disabled_falls_back_to_handoff(monkeypatch) -> None:
     """Transcrição DESLIGADA → áudio segue o handoff de hoje (acolhe + Lu)."""
     calls: dict[str, object] = {}

@@ -245,6 +245,12 @@ _ONEWAY_RE = re.compile(
 # A Malu perguntou sobre indicação? (qualquer turno dela com "indic...")
 _INDICACAO_ASKED_RE = re.compile(r"\bindic", re.IGNORECASE)
 
+# Cruzeiro: a completude é DIFERENTE de voo/pacote. A naviera define as saídas
+# (datas fixas); o cliente escolhe período+duração+região+porto, NÃO uma data de
+# embarque avulsa. → o gate afrouxa a exigência de data concreta pra este tipo
+# (ver gate_missing_fields).
+_CRUISE_RE = re.compile(r"\bcruzeiro\b|\bcruise\b", re.IGNORECASE)
+
 
 def _pendente_ou_vazio(value: object) -> bool:
     """True se o campo é nulo/placeholder OU ficou 'pendente' (data vaga ou
@@ -285,29 +291,66 @@ def _mentions_oneway(history: list[dict]) -> bool:
     return False
 
 
+def _is_cruise(data: dict, history: list[dict]) -> bool:
+    """True se a cotação é de cruzeiro — o gate afrouxa a exigência de data.
+
+    Cruzeiro não se cota por data de ida/volta exata: a naviera tem saídas fixas
+    e o cliente escolhe período (ex.: "primeira quinzena de dezembro") + duração.
+    Exigir dd/mm exato como num voo gera loop (a Malu pede um dia que o cliente
+    não tem como saber). Detecta pelo tipo de atendimento classificado OU por o
+    CLIENTE ter dito "cruzeiro" — a 2ª fonte cobre o fail-closed do dispatch
+    (gate roda sobre `data={}` quando a extração cai; aí só resta a history).
+    """
+    if _CRUISE_RE.search(str(data.get("tipo_atendimento") or "")):
+        return True
+    for msg in history:
+        if msg.get("role") == "user" and _CRUISE_RE.search(
+            str(msg.get("content") or "")
+        ):
+            return True
+    return False
+
+
 def gate_missing_fields(data: dict, history: list[dict]) -> list[str]:
     """Campos obrigatórios faltando que BARRAM o fecho do lead (mínimo crítico).
 
-    Exige: data de ida concreta; data de volta concreta (salvo só-ida); ao menos
-    1 adulto; e a pergunta de indicação já ter sido feita. Espera `data` JÁ
-    normalizado (normalize_lead_data). Lista vazia = pode finalizar. O item
-    "__indicacao__" é sentinela — `ask_missing_fields` usa frase própria pra ele.
+    Voo/pacote exige: data de ida concreta; data de volta concreta (salvo só-ida).
+    CRUZEIRO é a exceção (`_is_cruise`): a naviera define as saídas, então basta o
+    cliente ter dado ALGUM período (ex.: "primeira quinzena de dezembro", mesmo
+    marcado "pendente") — NÃO se exige dd/mm exato nem data de volta. Em ambos os
+    casos exige ≥1 adulto e a indicação TRATADA: a Malu perguntou OU o cliente já
+    contou espontaneamente quem indicou (`indicado_por` extraído) — exigir o
+    ritual da pergunta depois de o cliente responder sozinho é reperguntar.
+    Espera `data` JÁ normalizado (normalize_lead_data). Lista vazia = pode
+    finalizar. O item "__indicacao__" é sentinela — `ask_missing_fields` usa
+    frase própria pra ele.
     """
     missing: list[str] = []
-    if _pendente_ou_vazio(data.get("data_ida")):
-        missing.append("a data de ida")
-    volta = _clean_value(data.get("data_volta"))
-    # Só-ida detectado pelo campo (se o extrator marcou) OU pela fala do cliente
-    # no histórico (fonte real da intenção; o campo costuma vir nulo).
-    is_oneway = (
-        volta is not None and _ONEWAY_RE.search(volta) is not None
-    ) or _mentions_oneway(history)
-    if not is_oneway and _pendente_ou_vazio(data.get("data_volta")):
-        missing.append("a data de volta (ou se é só ida)")
+    if _is_cruise(data, history):
+        # Cruzeiro: período em qualquer forma (mesmo vago/"pendente") basta; sem
+        # data exata, sem volta. Só barra se NENHUM período foi dado — aí pede uma
+        # vez (não fica pedindo um dia de embarque que o cliente não tem como
+        # saber, que é o loop real da conversa da tia em 03/07).
+        if _clean_value(data.get("data_ida")) is None:
+            missing.append("o período que você quer viajar")
+    else:
+        if _pendente_ou_vazio(data.get("data_ida")):
+            missing.append("a data de ida")
+        volta = _clean_value(data.get("data_volta"))
+        # Só-ida detectado pelo campo (se o extrator marcou) OU pela fala do
+        # cliente no histórico (fonte real da intenção; o campo costuma vir nulo).
+        is_oneway = (
+            volta is not None and _ONEWAY_RE.search(volta) is not None
+        ) or _mentions_oneway(history)
+        if not is_oneway and _pendente_ou_vazio(data.get("data_volta")):
+            missing.append("a data de volta (ou se é só ida)")
     adultos = _clean_value(data.get("qtd_adultos"))
     if _pendente_ou_vazio(adultos) or adultos == "0":
         missing.append("quantas pessoas vão viajar")
-    if not indicacao_foi_perguntada(history):
+    if (
+        not indicacao_foi_perguntada(history)
+        and _clean_value(data.get("indicado_por")) is None
+    ):
         missing.append("__indicacao__")
     return missing
 
@@ -324,6 +367,13 @@ def build_coleta_digest(data: dict, history: list[dict]) -> str | None:
 
     Campos "pendente" (data vaga, quantidade não-numérica) NÃO entram no "já
     informado" — são genuinamente incompletos e devem ser reperguntados.
+
+    Quando o gate NÃO tem faltas duras, o digest emite um SINAL DE FECHAMENTO
+    explícito — sem ele o modelo não sai do modo pergunta e fica oferecendo
+    opcionais em loop (visto na suíte de conformidade de 05/07: com tudo
+    coletado, o fallback repetia menus de "tipo de atendimento/preferência de
+    voo" e nunca emitia o Resumo; no só-ida, a fixação num opcional escalou
+    até impasse→Lu). O fecho induzido é seguro: o gate re-valida na emissão.
     """
     filled: list[str] = []
     for key, label in BRIEFING_FIELDS:
@@ -335,9 +385,23 @@ def build_coleta_digest(data: dict, history: list[dict]) -> str | None:
     if not filled:
         return None
     linhas = ["Já informado pelo cliente:", *filled]
-    falta = [m for m in gate_missing_fields(data, history) if m != "__indicacao__"]
+    missing = gate_missing_fields(data, history)
+    falta = [m for m in missing if m != "__indicacao__"]
     if falta:
         linhas.append("Falta o essencial: " + ", ".join(falta) + ".")
+    elif "__indicacao__" in missing:
+        linhas.append(
+            "Todo o essencial já foi coletado. Falta SÓ a última pergunta — se "
+            "alguém indicou a Lu (e quem foi). Pergunte isso agora e, com a "
+            "resposta, FECHE emitindo o `## Resumo da Solicitação de Cotação`. "
+            "NÃO abra perguntas opcionais novas."
+        )
+    else:
+        linhas.append(
+            "Todo o essencial já foi coletado (indicação inclusive). FECHE AGORA: "
+            "encerre com uma frase completa e emita o `## Resumo da Solicitação "
+            "de Cotação` neste turno. NÃO faça mais perguntas."
+        )
     return "\n".join(linhas)
 
 

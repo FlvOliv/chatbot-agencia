@@ -387,6 +387,22 @@ def test_gate_nao_confunde_malu_perguntando_so_ida() -> None:
     assert "a data de volta (ou se é só ida)" in gate_missing_fields(data, history)
 
 
+def test_gate_aceita_indicacao_espontanea() -> None:
+    """Cliente conta quem indicou (ou que ninguém indicou) SEM a Malu ter
+    perguntado → o gate não exige o ritual da pergunta, senão a Malu repergunta
+    o que o cliente acabou de responder (visto no cenário S3 da suíte de
+    conformidade de 05/07)."""
+    data = normalize_lead_data(
+        {
+            "data_ida": "10/08",
+            "data_volta": "15/08",
+            "qtd_adultos": "2",
+            "indicado_por": "Ninguém",
+        }
+    )
+    assert gate_missing_fields(data, history=[]) == []
+
+
 def test_indicacao_foi_perguntada() -> None:
     assert indicacao_foi_perguntada(_INDIC_ASKED) is True
     assert indicacao_foi_perguntada([{"role": "user", "content": "quem indicou?"}]) is False
@@ -438,6 +454,70 @@ def test_gate_blocks_caso_1030_completo() -> None:
     assert "data de ida" in nudge and "data de volta" in nudge
     assert "indic" not in nudge.lower()
     assert nudge.count("💛") == 1
+
+
+# ---------------------------------------------------------------------------
+# Gate por TIPO — cruzeiro não se cota por data de ida/volta exata (03/07)
+# ---------------------------------------------------------------------------
+def test_gate_cruzeiro_caso_tia_aceita_periodo_e_ignora_volta() -> None:
+    """Caso real (03/07): cruzeiro saindo de Santos, 'primeira quinzena de
+    dezembro', 5-7 dias, 2 adultos. Período vago + sem data de volta É COMPLETO
+    pra cruzeiro (a naviera define as saídas) — o gate NÃO pode pedir dd/mm exato
+    nem volta, senão vira o loop que forçou a cliente a inventar '6/12'."""
+    data = normalize_lead_data(
+        {
+            "tipo_atendimento": "Cruzeiro",
+            "data_ida": "primeira quinzena de dezembro",  # vira "pendente"
+            "qtd_adultos": "2",
+            "origem": "Santos",
+            "destino": "Nordeste",
+        }
+    )
+    # Período vago vira pendente no normalize — mas pra cruzeiro isso BASTA.
+    assert data["data_ida"].startswith("pendente (")
+    missing = gate_missing_fields(data, _INDIC_ASKED)
+    assert "a data de ida" not in missing
+    assert "o período que você quer viajar" not in missing
+    assert "a data de volta (ou se é só ida)" not in missing
+    assert missing == []
+
+
+def test_gate_cruzeiro_detecta_pela_history_no_fail_closed() -> None:
+    """Extração sem tipo (data crua), mas o CLIENTE disse 'cruzeiro' → detecta
+    pela history — espelha o dispatch, que roda o gate sobre {} no fail-closed."""
+    data = normalize_lead_data(
+        {"data_ida": "primeira quinzena de dezembro", "qtd_adultos": "2"}
+    )
+    history = _INDIC_ASKED + [
+        {"role": "user", "content": "quero um cruzeiro saindo de Santos"}
+    ]
+    missing = gate_missing_fields(data, history)
+    assert "a data de volta (ou se é só ida)" not in missing
+    assert missing == []
+
+
+def test_gate_cruzeiro_pede_periodo_se_nenhum() -> None:
+    """Cruzeiro sem NENHUM período informado → pede o período uma vez (nunca um
+    dia de embarque exato, que o cliente não tem como saber)."""
+    data = normalize_lead_data({"tipo_atendimento": "Cruzeiro", "qtd_adultos": "2"})
+    missing = gate_missing_fields(data, _INDIC_ASKED)
+    assert "o período que você quer viajar" in missing
+    assert "a data de ida" not in missing
+
+
+def test_gate_voo_nao_afetado_pela_excecao_cruzeiro() -> None:
+    """Regressão: voo comum segue exigindo ida/volta concretas — a exceção de
+    data vaga vale SÓ pra cruzeiro, não pode vazar pros outros tipos."""
+    data = normalize_lead_data(
+        {
+            "tipo_atendimento": "Passagens aéreas",
+            "data_ida": "primeira quinzena de dezembro",
+            "qtd_adultos": "2",
+        }
+    )
+    missing = gate_missing_fields(data, _INDIC_ASKED)
+    assert "a data de ida" in missing
+    assert "a data de volta (ou se é só ida)" in missing
 
 
 # ---------------------------------------------------------------------------

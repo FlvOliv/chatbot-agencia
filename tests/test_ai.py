@@ -207,6 +207,15 @@ async def test_route_and_ask_without_customer_context_uses_base_prompt() -> None
     assert "Contexto do cliente nesta conversa" not in capturado["sp"]
 
 
+def test_prompt_base_tem_regra_anti_menu() -> None:
+    """Refino 4 (05/07, v4.9): o prompt proíbe questionários/menus repetidos —
+    o tique do fallback (gpt-oss/mistral) de despejar listas numeradas."""
+    sp = ai._build_system_prompt({})
+    assert "Nada de questionário" in sp
+    assert "no máximo uma vez" in sp  # menu do 4a é oferta única
+    assert "menu numerado" in sp  # 4h não vira menu pro cliente
+
+
 def test_build_system_prompt_first_turn_inserts_name() -> None:
     """_build_system_prompt na primeira mensagem inclui orientação dedicada."""
     sp = ai._build_system_prompt({"name": "João", "is_first_turn": True})

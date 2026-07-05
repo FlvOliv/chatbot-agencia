@@ -135,6 +135,15 @@ IMPASSE_REPLY = (
 _LOOP_SIMILARITY_THRESHOLD = 0.85
 _LOOP_MIN_LEN = 40
 
+# Fixação em SUB-pergunta (refino 3, 05/07): o modelo escapa do _too_similar
+# repetindo a MESMA pergunta com o resto do texto diferente (o "qual aeroporto
+# GRU/CGH/VCP?" 3× do cenário S4 da conformidade). Pergunta normalizada menor
+# que _QUESTION_MIN_LEN é cortesia ("tudo bem?"), não coleta; trecho contíguo
+# idêntico >= _QUESTION_MIN_OVERLAP entre duas perguntas marca a mesma pergunta
+# re-embutida numa frase composta diferente.
+_QUESTION_MIN_LEN = 15
+_QUESTION_MIN_OVERLAP = 30
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001
@@ -363,6 +372,66 @@ def _too_similar(a: str, b: str) -> bool:
     return difflib.SequenceMatcher(None, na, nb).ratio() >= _LOOP_SIMILARITY_THRESHOLD
 
 
+def _last_assistants(history: list[dict[str, Any]], n: int) -> list[str]:
+    """Últimas `n` falas da Malu, da mais recente pra mais antiga."""
+    out: list[str] = []
+    for msg in reversed(history):
+        if msg.get("role") == "assistant":
+            out.append(str(msg.get("content") or ""))
+            if len(out) == n:
+                break
+    return out
+
+
+def _questions_of(text: str) -> list[str]:
+    """Perguntas contidas numa fala (frases terminadas em "?"), normalizadas.
+
+    Perguntas curtas demais ficam de fora — cortesia não é coleta."""
+    out: list[str] = []
+    for part in re.split(r"\n+|(?<=[.!?])\s+", text or ""):
+        part = re.sub(r"[*_~\s]+$", "", part.strip())
+        if not part.endswith("?"):
+            continue
+        q = _normalize_for_compare(re.sub(r"[*_~]", "", part))
+        if len(q) >= _QUESTION_MIN_LEN:
+            out.append(q)
+    return out
+
+
+def _same_question(q: str, others: list[str]) -> bool:
+    """`q` re-faz alguma pergunta de `others`: quase igual no todo OU com um
+    trecho contíguo idêntico longo (a mesma pergunta embutida noutra frase)."""
+    for other in others:
+        sm = difflib.SequenceMatcher(None, q, other)
+        if sm.ratio() >= _LOOP_SIMILARITY_THRESHOLD:
+            return True
+        match = sm.find_longest_match(0, len(q), 0, len(other))
+        if match.size >= _QUESTION_MIN_OVERLAP:
+            return True
+    return False
+
+
+def _question_fixation(reply: str, history: list[dict[str, Any]]) -> bool:
+    """True se `reply` re-faz uma MESMA pergunta presente nas DUAS últimas falas
+    da Malu — 3ª ocorrência = fixação real (refino 3, 05/07).
+
+    O `_too_similar` compara a fala INTEIRA e é cego quando o modelo repete a
+    sub-pergunta com o resto diferente. Exigir a 3ª ocorrência separa fixação
+    de follow-up legítimo: re-perguntar a metade não respondida de uma pergunta
+    composta é normal UMA vez; na terceira é loop.
+    """
+    prevs = _last_assistants(history, n=2)
+    if len(prevs) < 2:
+        return False
+    qs_prev1, qs_prev2 = _questions_of(prevs[0]), _questions_of(prevs[1])
+    if not qs_prev1 or not qs_prev2:
+        return False
+    return any(
+        _same_question(q, qs_prev1) and _same_question(q, qs_prev2)
+        for q in _questions_of(reply)
+    )
+
+
 async def _process_text_message(
     phone: str,
     user_text: str,
@@ -534,6 +603,25 @@ async def _process_text_message(
     # INTERNOS que não vão pro cliente), aplica guard de preço e sanitiza.
     customer_reply, briefing_block, wants_transfer, price_blocked = _split_and_clean(reply)
 
+    # Fecho DETERMINÍSTICO (refino 05/07): a coleta está completa pelo gate
+    # (reusa a extração da Alavanca B) mas o modelo não emitiu o "## Resumo"
+    # nem pediu transferência → o código fecha. O "FECHE AGORA" do digest é
+    # instrução, e o modelo fallback demonstradamente a ignora (S3 da suíte de
+    # conformidade: com tudo coletado, seguia oferecendo menus de opcionais em
+    # loop). O bloco do modelo é só GATILHO — o briefing da Lu nasce de
+    # render_briefing(data) —, então dá pra fechar sem a cooperação dele; a
+    # resposta ao cliente vira o fechamento padrão (_build_closing_reply).
+    if (
+        not briefing_block
+        and not wants_transfer
+        and lead_data_cache is not None
+        and not gate_missing_fields(lead_data_cache, history)
+    ):
+        logger.info(
+            "fecho determinístico p/ %s: gate completo sem Resumo do modelo", phone
+        )
+        briefing_block = render_briefing(lead_data_cache, phone)
+
     # Anti-loop (Alavanca D): se a resposta ficou quase IGUAL à última fala da
     # Malu (o cliente não respondeu aquele ponto e ela ia repetir), re-prompta
     # UMA vez pedindo pra avançar (campo opcional → "sem preferência"). Se ainda
@@ -541,24 +629,52 @@ async def _process_text_message(
     # (transferência e fim-de-coleta seguem direto).
     if not wants_transfer and not briefing_block:
         previous = _last_assistant(history)
-        if previous is not None and _too_similar(customer_reply, previous):
+        if previous is not None and (
+            _too_similar(customer_reply, previous)
+            or _question_fixation(customer_reply, history)
+        ):
             logger.info("anti-loop: resposta repetida para %s — re-prompt", phone)
             reply2, model2 = await route_and_ask(
                 history, customer_context={**customer_context, "anti_loop": True}
             )
             if model2 != "error":
                 cr2, bb2, wt2, pb2 = _split_and_clean(reply2)
-                if bb2 or wt2 or not _too_similar(cr2, previous):
+                if bb2 or wt2 or not (
+                    _too_similar(cr2, previous) or _question_fixation(cr2, history)
+                ):
                     customer_reply, briefing_block, wants_transfer, price_blocked = (
                         cr2, bb2, wt2, pb2,
                     )
                     model_used = model2
                 else:
-                    logger.info(
-                        "anti-loop: impasse persistente para %s — Lu assume", phone
-                    )
-                    await _impasse_to_lu(phone, user_text, customer_name)
-                    return
+                    # Refino 2 (05/07): a repetição persistiu mesmo no re-prompt.
+                    # Antes de chamar a Lu, tenta destravar por CÓDIGO: pede só o
+                    # mínimo crítico que falta (a fixação costuma ser em campo
+                    # OPCIONAL — o "qual aeroporto?" do S4 derrubava na Lu um
+                    # cliente cooperativo com a coleta essencial andando).
+                    # Impasse de verdade fica pra quando não sabemos o que falta
+                    # (extração fora) ou quando até o nudge repetiria a fala
+                    # anterior (já foi tentado e não avançou).
+                    nudge: str | None = None
+                    if lead_data_cache is not None:
+                        falta = gate_missing_fields(lead_data_cache, history)
+                        if falta:
+                            nudge = ask_missing_fields(falta)
+                    if nudge is not None and not _too_similar(nudge, previous):
+                        logger.info(
+                            "anti-loop: repetição persistente p/ %s — nudge "
+                            "determinístico no lugar do impasse",
+                            phone,
+                        )
+                        customer_reply = nudge
+                        briefing_block = None
+                        wants_transfer = False
+                    else:
+                        logger.info(
+                            "anti-loop: impasse persistente para %s — Lu assume", phone
+                        )
+                        await _impasse_to_lu(phone, user_text, customer_name)
+                        return
 
     if price_blocked:
         logger.warning(
@@ -566,6 +682,26 @@ async def _process_text_message(
             phone,
             model_used,
         )
+        # Refino 5 (05/07): o guard SUBSTITUI a resposta inteira pela frase
+        # defensiva — sem pergunta nenhuma, a conversa morre (no S3 o 1º contato
+        # do cliente recebeu SÓ a frase: nem saudação, nem próximo passo).
+        # Recoloca a coleta nos trilhos anexando o pedido do mínimo crítico que
+        # falta (reusa a extração da Alavanca B; no 1º turno extrai agora — o
+        # custo extra só existe neste caminho raro). O 💛 da frase defensiva sai
+        # pra não duplicar com o do nudge (regra de 1 emoji por mensagem).
+        if not briefing_block and not wants_transfer and "?" not in customer_reply:
+            data = lead_data_cache
+            if data is None:
+                try:
+                    raw = await extract_lead_data(history)
+                    data = normalize_lead_data(raw) if raw else None
+                except Exception:
+                    logger.exception("extração pós-price_guard falhou p/ %s", phone)
+                    data = None
+            falta = gate_missing_fields(data, history) if data is not None else []
+            if falta:
+                base = customer_reply.replace("💛", "").rstrip()
+                customer_reply = f"{base}\n\n{ask_missing_fields(falta)}"
 
     if wants_transfer:
         await _transfer_to_lu(phone, user_text, customer_reply, customer_name)

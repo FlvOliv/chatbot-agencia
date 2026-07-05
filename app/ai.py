@@ -39,6 +39,14 @@ PROMPT_PATH = Path(__file__).parent / "prompts" / "malu_v4.md"
 # Limite conservador — respostas longas demais ficam ruins no WhatsApp
 _MAX_TOKENS = 1024
 
+# A extração JSON precisa de teto MAIOR que o chat: o gpt-oss-120b (perna
+# Cerebras) gasta tokens de raciocínio DENTRO do completion, e o JSON dos ~27
+# campos do briefing estourava 1024 quando a conversa crescia → JSON truncado
+# = inválido = extração morta (e com ela a Alavanca B e o fecho determinístico).
+# Visto na suíte de conformidade de 05/07: todo kind=extract que falhava tinha
+# completion=1024 cravado. Não afeta o WhatsApp — extração nunca vai pro cliente.
+_MAX_TOKENS_EXTRACT = 3000
+
 
 # ---------------------------------------------------------------------------
 # Instrumentação de consumo (só medição — não altera comportamento)
@@ -301,7 +309,7 @@ async def _ask_malu_groq(
     kwargs: dict[str, Any] = {
         "model": model or settings.groq_model,
         "messages": messages,
-        "max_tokens": _MAX_TOKENS,
+        "max_tokens": _MAX_TOKENS_EXTRACT if json_mode else _MAX_TOKENS,
         # 0.2 (não 0.7): respostas mais previsíveis e aderentes às regras —
         # menos escapes (preço/milhas/inglês). Extração JSON segue em 0.0.
         "temperature": 0.0 if json_mode else 0.2,
@@ -343,7 +351,7 @@ async def _ask_openai_compat(
     payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "max_tokens": _MAX_TOKENS,
+        "max_tokens": _MAX_TOKENS_EXTRACT if json_mode else _MAX_TOKENS,
         # Mesma régua do Groq: 0.2 no chat (aderente às regras), 0.0 na extração.
         "temperature": 0.0 if json_mode else 0.2,
     }

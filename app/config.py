@@ -43,9 +43,12 @@ class Settings(BaseSettings):
     audio_transcription_enabled: bool = Field(default=False)
     groq_whisper_model: str = Field(default="whisper-large-v3-turbo")
     # Reserva REAL dentro do próprio Groq: modelo menor/rápido com limites
-    # separados. Entra quando o modelo principal falha/é limitado (429), ANTES
-    # de cair pro Gemini (que no free vive esgotado). "" desliga.
-    groq_fallback_model: str = Field(default="llama-3.1-8b-instant")
+    # PRÓPRIOS (cota separada do principal, não compartilhada — confirmado na
+    # doc da Groq). "" desliga. DESLIGADA por decisão do Flávio (05/07):
+    # prioriza inteligência/aderência ao prompt da Malu sobre o fôlego extra
+    # de cota que um modelo mais fraco daria — a reserva de capacidade vem de
+    # Cerebras (mesmo gpt-oss-120b) e do piso pago, não de um modelo pior.
+    groq_fallback_model: str = Field(default="")
 
     # Cerebras (perna GRÁTIS extra — OpenAI-compatible). Entra DEPOIS do Groq e
     # ANTES do piso pago. NÃO ativar billing/PAYG: usar só o tier grátis. ""

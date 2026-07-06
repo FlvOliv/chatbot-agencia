@@ -20,7 +20,7 @@ O projeto tem duas partes:
 | Camada | Tecnologia |
 |---|---|
 | Backend | Python **3.12** + FastAPI 0.115 (async) |
-| IA principal | **Groq** `llama-3.3-70b-versatile` |
+| IA principal | **Groq** `openai/gpt-oss-120b` |
 | IA fallback | **Google Gemini** `gemini-2.5-flash` (fallback automático em `app/ai.py`) |
 | Sessão/histórico | **Redis** (asyncio) — em produção/dev usa **Upstash** (TLS `rediss://`) |
 | Banco | **PostgreSQL** (SQLAlchemy 2 async + Alembic) — usa **Supabase** |

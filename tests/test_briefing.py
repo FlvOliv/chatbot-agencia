@@ -314,13 +314,33 @@ def _complete_data() -> dict:
     )
 
 
-def test_gate_blocks_vague_date() -> None:
-    # "mês que vem" → normalize marca pendente → gate barra a data de ida.
-    data = normalize_lead_data(
-        {"data_ida": "mês que vem", "data_volta": "31/07", "qtd_adultos": "1"}
-    )
+def test_gate_periodo_sem_duracao_pede_quantos_dias() -> None:
+    # "mês que vem" é um PERÍODO válido (checklist da Lu, 05/07) — o que falta
+    # não é um dd/mm exato, é a DURAÇÃO da estadia (com ela a Lu combina datas).
+    data = normalize_lead_data({"data_ida": "mês que vem", "qtd_adultos": "1"})
     missing = gate_missing_fields(data, _INDIC_ASKED)
-    assert "a data de ida" in missing
+    assert "quantos dias você pretende ficar (ou as datas de ida e volta)" in missing
+
+
+def test_gate_periodo_mais_duracao_e_cotavel() -> None:
+    # Checklist canônico da Lu: "primeira quinzena de outubro" + "7 dias" já é
+    # briefing cotável pra VOO/pacote — não força dia exato (era só cruzeiro).
+    data = normalize_lead_data(
+        {
+            "data_ida": "primeira quinzena de outubro",
+            "duracao_dias": "7 dias",
+            "qtd_adultos": "2",
+        }
+    )
+    assert gate_missing_fields(data, _INDIC_ASKED) == []
+
+
+def test_gate_ida_concreta_mais_duracao_dispensa_volta() -> None:
+    # Ida exata + "fico 5 dias" → a volta sai da conta; a Lu fecha as pontas.
+    data = normalize_lead_data(
+        {"data_ida": "10/10", "duracao_dias": "5", "qtd_adultos": "1"}
+    )
+    assert gate_missing_fields(data, _INDIC_ASKED) == []
 
 
 def test_gate_blocks_missing_indicacao() -> None:
@@ -345,7 +365,7 @@ def test_gate_accepts_one_way() -> None:
         {"data_ida": "26/07", "data_volta": "somente ida", "qtd_adultos": "1"}
     )
     missing = gate_missing_fields(data, _INDIC_ASKED)
-    assert "a data de volta (ou se é só ida)" not in missing
+    assert "a data de volta (ou quantos dias fica — ou se é só ida)" not in missing
     assert missing == []
 
 
@@ -358,7 +378,7 @@ def test_gate_accepts_one_way_from_history() -> None:
         {"role": "user", "content": "somente ida de SP para RJ, dia 10, 1 pessoa"}
     ]
     missing = gate_missing_fields(data, history)
-    assert "a data de volta (ou se é só ida)" not in missing
+    assert "a data de volta (ou quantos dias fica — ou se é só ida)" not in missing
     assert missing == []
 
 
@@ -369,14 +389,14 @@ def test_gate_accepts_one_way_from_history() -> None:
 def test_gate_detecta_so_ida_em_variantes(fala: str) -> None:
     data = normalize_lead_data({"data_ida": "10/07", "qtd_adultos": "1"})
     history = _INDIC_ASKED + [{"role": "user", "content": fala}]
-    assert "a data de volta (ou se é só ida)" not in gate_missing_fields(data, history)
+    assert "a data de volta (ou quantos dias fica — ou se é só ida)" not in gate_missing_fields(data, history)
 
 
 def test_gate_ainda_exige_volta_sem_marcador() -> None:
     """Regressão: sem sinal de só-ida e sem data_volta → segue exigindo a volta."""
     data = normalize_lead_data({"data_ida": "10/07", "qtd_adultos": "1"})
     history = _INDIC_ASKED + [{"role": "user", "content": "ida de SP pro Rio dia 10"}]
-    assert "a data de volta (ou se é só ida)" in gate_missing_fields(data, history)
+    assert "a data de volta (ou quantos dias fica — ou se é só ida)" in gate_missing_fields(data, history)
 
 
 def test_gate_nao_confunde_malu_perguntando_so_ida() -> None:
@@ -387,7 +407,7 @@ def test_gate_nao_confunde_malu_perguntando_so_ida() -> None:
         {"role": "assistant", "content": "É só ida mesmo, sem volta?"},
         {"role": "user", "content": "dia 10"},
     ]
-    assert "a data de volta (ou se é só ida)" in gate_missing_fields(data, history)
+    assert "a data de volta (ou quantos dias fica — ou se é só ida)" in gate_missing_fields(data, history)
 
 
 def test_gate_aceita_indicacao_espontanea() -> None:
@@ -414,8 +434,8 @@ def test_indicacao_foi_perguntada() -> None:
 
 def test_ask_missing_fields_prioriza_dados_duros() -> None:
     # Falta data + indicação → pede os dados duros primeiro, 1 emoji só.
-    msg = ask_missing_fields(["a data de ida", "__indicacao__"])
-    assert "data de ida" in msg
+    msg = ask_missing_fields(["a data ou o período da viagem", "__indicacao__"])
+    assert "período da viagem" in msg
     assert "indic" not in msg.lower()  # indicação fica pro próximo turno
     assert msg.count("💛") == 1
 
@@ -427,11 +447,10 @@ def test_ask_missing_fields_so_indicacao() -> None:
 
 
 def test_gate_blocks_caso_1030_completo() -> None:
-    """#1030 no shape exato: 'mês que vem' (ida) + 'fico 5 dias' (volta como
-    DURAÇÃO, não data concreta) + menção de valor + indicação nunca perguntada.
-    Mesmo com o atalho 'já finalizou?' na conversa, o gate barra o fecho e lista
-    os 3 buracos de uma vez. O valor é ruído pro gate (não é campo) — não
-    destrava nada. (NÃO valida se a data calculada está correta — isso é o LLM.)
+    """#1030 no shape exato: 'mês que vem' (período) + 'fico 5 dias' capturado
+    como data_volta pendente + menção de valor + indicação nunca perguntada.
+    SEM `duracao_dias` extraído, o gate pede a duração (não um dd/mm — regra da
+    Lu); COM a duração extraída, só falta a indicação. O valor é ruído pro gate.
     """
     history = [
         {"role": "user", "content": "quero Paris mês que vem, fico uns 5 dias"},
@@ -449,14 +468,16 @@ def test_gate_blocks_caso_1030_completo() -> None:
     # Duração não casa _DATE_CONCRETE_RE → vira pendente (não satisfaz a volta).
     assert data["data_volta"].startswith("pendente (")
     missing = gate_missing_fields(data, history)  # Malu nunca disse "indic..."
-    assert "a data de ida" in missing
-    assert "a data de volta (ou se é só ida)" in missing
+    assert "quantos dias você pretende ficar (ou as datas de ida e volta)" in missing
     assert "__indicacao__" in missing
     # Nudge pede os dados duros 1º; indicação fica pro próximo turno; 1 emoji só.
     nudge = ask_missing_fields(missing)
-    assert "data de ida" in nudge and "data de volta" in nudge
+    assert "quantos dias" in nudge
     assert "indic" not in nudge.lower()
     assert nudge.count("💛") == 1
+    # Com o extrator capturando "5 dias" no campo próprio, só falta a indicação.
+    data["duracao_dias"] = "5 dias"
+    assert gate_missing_fields(data, history) == ["__indicacao__"]
 
 
 # ---------------------------------------------------------------------------
@@ -479,9 +500,9 @@ def test_gate_cruzeiro_caso_tia_aceita_periodo_e_ignora_volta() -> None:
     # Período vago vira pendente no normalize — mas pra cruzeiro isso BASTA.
     assert data["data_ida"].startswith("pendente (")
     missing = gate_missing_fields(data, _INDIC_ASKED)
-    assert "a data de ida" not in missing
+    assert "a data ou o período da viagem" not in missing
     assert "o período que você quer viajar" not in missing
-    assert "a data de volta (ou se é só ida)" not in missing
+    assert "a data de volta (ou quantos dias fica — ou se é só ida)" not in missing
     assert missing == []
 
 
@@ -495,7 +516,7 @@ def test_gate_cruzeiro_detecta_pela_history_no_fail_closed() -> None:
         {"role": "user", "content": "quero um cruzeiro saindo de Santos"}
     ]
     missing = gate_missing_fields(data, history)
-    assert "a data de volta (ou se é só ida)" not in missing
+    assert "a data de volta (ou quantos dias fica — ou se é só ida)" not in missing
     assert missing == []
 
 
@@ -505,12 +526,13 @@ def test_gate_cruzeiro_pede_periodo_se_nenhum() -> None:
     data = normalize_lead_data({"tipo_atendimento": "Cruzeiro", "qtd_adultos": "2"})
     missing = gate_missing_fields(data, _INDIC_ASKED)
     assert "o período que você quer viajar" in missing
-    assert "a data de ida" not in missing
+    assert "a data ou o período da viagem" not in missing
 
 
 def test_gate_voo_nao_afetado_pela_excecao_cruzeiro() -> None:
-    """Regressão: voo comum segue exigindo ida/volta concretas — a exceção de
-    data vaga vale SÓ pra cruzeiro, não pode vazar pros outros tipos."""
+    """Regressão: a leniência do cruzeiro não vaza inteira pros outros tipos.
+    Voo com período mas SEM duração ainda barra o fecho — pedindo a duração
+    (regra da Lu), não um dd/mm exato. Cruzeiro fecha com o período sozinho."""
     data = normalize_lead_data(
         {
             "tipo_atendimento": "Passagens aéreas",
@@ -519,8 +541,7 @@ def test_gate_voo_nao_afetado_pela_excecao_cruzeiro() -> None:
         }
     )
     missing = gate_missing_fields(data, _INDIC_ASKED)
-    assert "a data de ida" in missing
-    assert "a data de volta (ou se é só ida)" in missing
+    assert missing == ["quantos dias você pretende ficar (ou as datas de ida e volta)"]
 
 
 _MENU_TIPO = (
@@ -542,8 +563,8 @@ def test_gate_cruzeiro_detecta_escolha_sete_no_menu() -> None:
         {"role": "user", "content": "quero nordeste, sair e voltar de santos"},
     ]
     missing = gate_missing_fields({}, history)
-    assert "a data de ida" not in missing
-    assert "a data de volta (ou se é só ida)" not in missing
+    assert "a data ou o período da viagem" not in missing
+    assert "a data de volta (ou quantos dias fica — ou se é só ida)" not in missing
     assert "o período que você quer viajar" in missing
 
 
@@ -554,7 +575,7 @@ def test_gate_menu_multiplas_opcoes_com_7_vale_cruzeiro() -> None:
         {"role": "user", "content": "quero a 1 e a 7"},
     ]
     missing = gate_missing_fields({}, history)
-    assert "a data de volta (ou se é só ida)" not in missing
+    assert "a data de volta (ou quantos dias fica — ou se é só ida)" not in missing
 
 
 def test_gate_menu_sete_pessoas_nao_vira_cruzeiro() -> None:
@@ -565,7 +586,7 @@ def test_gate_menu_sete_pessoas_nao_vira_cruzeiro() -> None:
         {"role": "user", "content": "somos sete pessoas"},
     ]
     missing = gate_missing_fields({}, history)
-    assert "a data de ida" in missing
+    assert "a data ou o período da viagem" in missing
 
 
 # ---------------------------------------------------------------------------
@@ -615,7 +636,7 @@ def test_ask_missing_fields_com_recap_prefixa_o_anotado() -> None:
 
 def test_ask_missing_fields_sem_data_segue_igual() -> None:
     """Compatibilidade: sem ficha, a frase é a mesma de antes (sem prefixo)."""
-    msg = ask_missing_fields(["a data de ida"])
+    msg = ask_missing_fields(["a data ou o período da viagem"])
     assert msg.startswith("Antes de eu organizar")
 
 
@@ -672,8 +693,7 @@ def test_gate_barra_data_no_passado() -> None:
         }
     )
     missing = gate_missing_fields(data, _INDIC_ASKED)
-    assert "a data de ida" in missing
-    assert "a data de volta (ou se é só ida)" in missing
+    assert "a data ou o período da viagem" in missing
 
 
 def test_gate_data_sem_ano_nao_e_condenada() -> None:

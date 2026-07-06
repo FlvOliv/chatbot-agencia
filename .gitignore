@@ -59,6 +59,10 @@ logs/
 # Docker
 docker-compose.override.yml
 
+# Handoff local (contém segredos/PINs — foto do projeto vive fora do commit)
+/HANDOFF_MALU.md
+/HANDOFF_ARQUIVO.md
+
 # Mypy / ruff
 .mypy_cache/
 .ruff_cache/

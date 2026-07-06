@@ -116,10 +116,11 @@ async def test_price_guard_no_primeiro_turno_anexa_proxima_pergunta(monkeypatch)
     sent = str(calls["sent"])
     assert "R$" not in sent  # o valor nunca vaza
     assert "tarifas mudam em tempo real" in sent  # frase defensiva mantida
-    # A coleta segue: pediu o mínimo crítico (data vaga → pede data concreta)
+    # A coleta segue: pediu o mínimo crítico ("mês que vem" é período válido —
+    # regra da Lu — então o que falta é a DURAÇÃO da estadia, não dd/mm exato)
     assert calls.get("extracted") is True
     assert "só me confirma" in sent
-    assert "data de ida" in sent
+    assert "quantos dias" in sent
     assert sent.count("💛") == 1  # sem emoji duplicado (defensiva + nudge)
 
 

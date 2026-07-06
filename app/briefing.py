@@ -87,6 +87,11 @@ BRIEFING_FIELDS: list[tuple[str, str]] = [
     ("data_ida", "Data de ida"),
     ("data_volta", "Data de volta"),
     ("flexibilidade_datas", "Flexibilidade de datas"),
+    # Quantos dias o cliente fica no destino ("7 dias", "5 a 7"). Com um PERÍODO
+    # ("primeira quinzena de outubro") + duração, a Lu combina as melhores datas
+    # — checklist canônico dela (questionário 05/07). Texto livre de propósito:
+    # "5 a 7 dias" é resposta válida, não coagir a int.
+    ("duracao_dias", "Quantos dias de viagem"),
     ("qtd_adultos", "Quantidade de adultos"),
     ("qtd_criancas", "Quantidade de crianças"),
     ("idades_criancas", "Idades das crianças"),
@@ -446,13 +451,16 @@ def _is_cruise(data: dict, history: list[dict]) -> bool:
 def gate_missing_fields(data: dict, history: list[dict]) -> list[str]:
     """Campos obrigatórios faltando que BARRAM o fecho do lead (mínimo crítico).
 
-    Voo/pacote exige: data de ida concreta; data de volta concreta (salvo só-ida).
-    CRUZEIRO é a exceção (`_is_cruise`): a naviera define as saídas, então basta o
-    cliente ter dado ALGUM período (ex.: "primeira quinzena de dezembro", mesmo
-    marcado "pendente") — NÃO se exige dd/mm exato nem data de volta. Em ambos os
-    casos exige ≥1 adulto e a indicação TRATADA: a Malu perguntou OU o cliente já
-    contou espontaneamente quem indicou (`indicado_por` extraído) — exigir o
-    ritual da pergunta depois de o cliente responder sozinho é reperguntar.
+    Regra de DATAS (checklist canônico da Lu, questionário 05/07): pra cotar,
+    basta UMA das formas — (a) ida e volta concretas; (b) período/janela em
+    qualquer forma ("primeira quinzena de outubro", "mês que vem") + QUANTOS
+    DIAS de viagem (`duracao_dias` — com isso a Lu combina as melhores datas);
+    (c) só-ida com a data/período de embarque. Data completa no PASSADO nunca
+    vale. CRUZEIRO (`_is_cruise`) afrouxa mais: a naviera define as saídas,
+    então ALGUM período basta — sem exigir duração nem volta. Em todos os
+    casos exige ≥1 adulto e a indicação TRATADA: a Malu perguntou OU o cliente
+    já contou espontaneamente quem indicou (`indicado_por` extraído) — exigir
+    o ritual da pergunta depois de o cliente responder sozinho é reperguntar.
     Espera `data` JÁ normalizado (normalize_lead_data). Lista vazia = pode
     finalizar. O item "__indicacao__" é sentinela — `ask_missing_fields` usa
     frase própria pra ele.
@@ -466,21 +474,30 @@ def gate_missing_fields(data: dict, history: list[dict]) -> list[str]:
         if _clean_value(data.get("data_ida")) is None:
             missing.append("o período que você quer viajar")
     else:
-        if _pendente_ou_vazio(data.get("data_ida")) or _data_passada(
-            data.get("data_ida")
-        ):
-            missing.append("a data de ida")
-        volta = _clean_value(data.get("data_volta"))
+        ida_raw = data.get("data_ida")
+        ida_dada = _clean_value(ida_raw) is not None and not _data_passada(ida_raw)
+        ida_concreta = not _pendente_ou_vazio(ida_raw) and not _data_passada(ida_raw)
+        volta_raw = data.get("data_volta")
+        volta_concreta = not _pendente_ou_vazio(volta_raw) and not _data_passada(
+            volta_raw
+        )
+        tem_duracao = _clean_value(data.get("duracao_dias")) is not None
+        volta = _clean_value(volta_raw)
         # Só-ida detectado pelo campo (se o extrator marcou) OU pela fala do
         # cliente no histórico (fonte real da intenção; o campo costuma vir nulo).
         is_oneway = (
             volta is not None and _ONEWAY_RE.search(volta) is not None
         ) or _mentions_oneway(history)
-        if not is_oneway and (
-            _pendente_ou_vazio(data.get("data_volta"))
-            or _data_passada(data.get("data_volta"))
-        ):
-            missing.append("a data de volta (ou se é só ida)")
+        if not ida_dada:
+            missing.append("a data ou o período da viagem")
+        elif not (is_oneway or volta_concreta or tem_duracao):
+            # Tem ida/período mas nada que feche a estadia. O nudge pede o que
+            # tem mais chance de destravar: com dia exato de ida, a volta; com
+            # período vago, a duração (forçar dd/mm aqui era o loop da tia).
+            if ida_concreta:
+                missing.append("a data de volta (ou quantos dias fica — ou se é só ida)")
+            else:
+                missing.append("quantos dias você pretende ficar (ou as datas de ida e volta)")
     adultos = _clean_value(data.get("qtd_adultos"))
     if _pendente_ou_vazio(adultos) or adultos == "0":
         missing.append("quantas pessoas vão viajar")
@@ -591,6 +608,11 @@ def build_recap(data: dict) -> str | None:
         parts.append(f"ida {ida} e volta {volta}")
     elif ida:
         parts.append(ida)
+    if not volta:
+        # Sem volta, a duração fecha a conta pro cliente ("… · 7 dias · …").
+        dur = val("duracao_dias")
+        if dur:
+            parts.append(f"{dur} dias" if dur.isdigit() else dur)
     adultos = val("qtd_adultos")
     if adultos:
         pax = _qtd(adultos, "adulto", "adultos")

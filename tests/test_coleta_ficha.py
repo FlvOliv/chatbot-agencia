@@ -248,8 +248,7 @@ async def test_nudge_repetido_no_gate_vira_impasse(monkeypatch) -> None:
     calls: dict[str, object] = {}
     nudge_prev = main.ask_missing_fields(
         [
-            "a data de ida",
-            "a data de volta (ou se é só ida)",
+            "a data ou o período da viagem",
             "quantas pessoas vão viajar",
         ]
     )

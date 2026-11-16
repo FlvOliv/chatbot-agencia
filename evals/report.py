@@ -74,6 +74,7 @@ def provider_stats(rows: list[dict]) -> dict[str, Any]:
 
     return {
         "n_rows": len(rows),
+        "versions": sorted({r.get("code_version", "sem registro") for r in rows}),
         "per_field": per_field,
         "field_mean": M.mean(per_field.values()),
         "field_mean_closed": 100 * sum(cond_hits) / len(cond_hits) if cond_hits else None,
@@ -116,6 +117,17 @@ def render(run: str, stats: dict[str, dict], cfg: dict, pricing: dict, n_cases: 
         f"N = {n_cases} conversas sintéticas · k = {cfg['k']} · linhas por provedor: "
         + ", ".join(f"{p} {stats[p]['n_rows']}" for p in provs),
         "",
+        "Código: " + "; ".join(f"{p} {', '.join(stats[p]['versions'])}" for p in provs),
+        "",
+    ]
+    all_versions = {v for p in provs for v in stats[p]["versions"]}
+    if len(all_versions) > 1 or any(v.endswith("-dirty") or v == "sem registro" for v in all_versions):
+        lines += [
+            "> ⚠️ A rodada mistura versões de código ou tem código não commitado. "
+            "Os números não são comparáveis entre si.",
+            "",
+        ]
+    lines += [
         head,
         sep,
         row("Acerto médio por campo (casos que deviam fechar)", "field_mean", suffix="%"),

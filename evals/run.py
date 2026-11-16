@@ -52,6 +52,30 @@ def load_cases(seed: int) -> list[dict[str, Any]]:
     return cases
 
 
+_CODE_VERSION: str | None = None
+
+
+def code_version() -> str:
+    """Commit do código que gerou a linha (+ "-dirty" se app/ ou evals/ tinham
+    mudança não commitada). O relatório avisa se a rodada misturar versões."""
+    global _CODE_VERSION
+    if _CODE_VERSION is None:
+        import subprocess
+
+        try:
+            sha = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True
+            ).stdout.strip()
+            dirty = subprocess.run(
+                ["git", "status", "--porcelain", "--", "app", "evals/harness.py", "evals/run.py", "evals/metrics.py"],
+                cwd=ROOT, capture_output=True, text=True, check=True,
+            ).stdout.strip()
+            _CODE_VERSION = sha + ("-dirty" if dirty else "")
+        except Exception:  # noqa: BLE001
+            _CODE_VERSION = "desconhecido"
+    return _CODE_VERSION
+
+
 def synthetic_phone(case_id: str, rep: int) -> str:
     """Telefone sintético estável (DDI 55 + DDD 00, que não existe)."""
     digits = int(hashlib.sha256(f"{case_id}:{rep}".encode()).hexdigest(), 16) % 10**8
@@ -112,6 +136,7 @@ def build_record(case: dict, provider: str, model: str, rep: int, run: str, turn
     price_cost = 0.0
     return {
         "run": run,
+        "code_version": code_version(),
         "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "case_id": case["id"],
         "category": case["category"],

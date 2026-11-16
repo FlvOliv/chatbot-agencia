@@ -108,6 +108,9 @@ def test_tokens_de_raciocinio_groq_e_gemini():
     # Gemini: thinking vem à parte e é somado à saída cobrada
     gem = SimpleNamespace(prompt_token_count=100, candidates_token_count=30, thoughts_token_count=50)
     assert _usage_numbers(gem) == (100, 80, 50)
+    # SDK legado sem thoughts_token_count: o thinking sai do total (log real de 16/11)
+    legado = SimpleNamespace(prompt_token_count=6472, candidates_token_count=97, total_token_count=7036)
+    assert _usage_numbers(legado) == (6472, 564, 467)
 
 
 def test_percentil_e_custo():

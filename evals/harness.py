@@ -124,9 +124,16 @@ def _usage_numbers(usage: Any) -> tuple[int, int, int]:
         reasoning = details.get("reasoning_tokens", 0) if isinstance(details, dict) else getattr(details, "reasoning_tokens", 0)
         return int(prompt or 0), int(completion or 0), int(reasoning or 0)
     # Gemini: candidates_token_count NÃO inclui o thinking, que é cobrado como saída.
-    completion = get("candidates_token_count", 0)
-    thinking = get("thoughts_token_count", 0) or 0
-    return int(prompt or 0), int(completion or 0) + int(thinking), int(thinking)
+    # O SDK google.generativeai (legado) não expõe thoughts_token_count: o thinking
+    # aparece só no total (visto em 16/11: prompt 6472 + candidates 97 ≠ total 7036).
+    # Sem o campo, thinking = total - prompt - candidates.
+    completion = int(get("candidates_token_count", 0) or 0)
+    prompt = int(prompt or 0)
+    thinking = int(get("thoughts_token_count", 0) or 0)
+    if not thinking:
+        total = int(get("total_token_count", 0) or 0)
+        thinking = max(total - prompt - completion, 0)
+    return prompt, completion + thinking, thinking
 
 
 def _traced_log_usage(provider: str, model: str, usage: Any, json_mode: bool = False) -> None:

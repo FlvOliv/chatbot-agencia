@@ -311,6 +311,20 @@ _ONEWAY_RE = re.compile(
 # A Malu perguntou sobre indicação? (qualquer turno dela com "indic...")
 _INDICACAO_ASKED_RE = re.compile(r"\bindic", re.IGNORECASE)
 
+# O CLIENTE já respondeu sobre indicação sem ser perguntado? Visto no eval de
+# 16/11/2026: "…ninguém me indicou" no 1º turno, e o gate reperguntava no 2º
+# porque o extrator devolve `indicado_por` nulo pra "ninguém". Formas de
+# RESPOSTA, não o verbo solto: "me indica um hotel?" não pode contar.
+_INDICACAO_RESPONDIDA_RE = re.compile(
+    r"\bindicou\b"                                  # "ninguém indicou", "a Ju indicou"
+    r"|\bindica[cç][aã]o\s+d[aeo]s?\b"              # "indicação da Juliana"
+    r"|\b(?:fui|foi|fomos|foram)\s+indicad"         # "fui indicado pela…"
+    r"|\bindicad[oa]s?\s+(?:por|pel[oa]s?)\b"       # "indicada pela Cláudia"
+    r"|\bsem\s+indica[cç][aã]o\b"
+    r"|\bningu[eé]m\s+(?:me\s+|nos\s+)?indic",      # "ninguém me indicou"
+    re.IGNORECASE,
+)
+
 # Cruzeiro: a completude é DIFERENTE de voo/pacote. A naviera define as saídas
 # (datas fixas); o cliente escolhe período+duração+região+porto, NÃO uma data de
 # embarque avulsa. → o gate afrouxa a exigência de data concreta pra este tipo
@@ -358,6 +372,19 @@ def indicacao_foi_perguntada(history: list[dict]) -> bool:
             str(msg.get("content") or "")
         ):
             return True
+    return False
+
+
+def indicacao_respondida_pelo_cliente(history: list[dict]) -> bool:
+    """True se o CLIENTE já tratou a indicação por conta própria ("ninguém me
+    indicou", "fui indicado pela Ana"). Pergunta do cliente não conta: o trecho
+    que casa não pode terminar em "?"."""
+    for msg in history:
+        if msg.get("role") != "user":
+            continue
+        for trecho in re.split(r"(?<=[.!?\n])", str(msg.get("content") or "")):
+            if _INDICACAO_RESPONDIDA_RE.search(trecho) and not trecho.strip().endswith("?"):
+                return True
     return False
 
 
@@ -459,7 +486,8 @@ def gate_missing_fields(data: dict, history: list[dict]) -> list[str]:
     vale. CRUZEIRO (`_is_cruise`) afrouxa mais: a naviera define as saídas,
     então ALGUM período basta — sem exigir duração nem volta. Em todos os
     casos exige ≥1 adulto e a indicação TRATADA: a Malu perguntou OU o cliente
-    já contou espontaneamente quem indicou (`indicado_por` extraído) — exigir
+    já contou espontaneamente quem indicou (`indicado_por` extraído) OU disse
+    sozinho que ninguém indicou (`indicacao_respondida_pelo_cliente`) — exigir
     o ritual da pergunta depois de o cliente responder sozinho é reperguntar.
     Espera `data` JÁ normalizado (normalize_lead_data). Lista vazia = pode
     finalizar. O item "__indicacao__" é sentinela — `ask_missing_fields` usa
@@ -504,6 +532,7 @@ def gate_missing_fields(data: dict, history: list[dict]) -> list[str]:
     if (
         not indicacao_foi_perguntada(history)
         and _clean_value(data.get("indicado_por")) is None
+        and not indicacao_respondida_pelo_cliente(history)
     ):
         missing.append("__indicacao__")
     return missing

@@ -47,6 +47,40 @@ _MAX_TOKENS = 1024
 # completion=1024 cravado. Não afeta o WhatsApp — extração nunca vai pro cliente.
 _MAX_TOKENS_EXTRACT = 3000
 
+# O MESMO problema afetava o CHAT, e esse vai pro cliente: no eval de 16/11/2026
+# o gpt-oss-120b gastou 958 dos 1024 tokens raciocinando e a resposta chegou
+# cortada no meio da frase ("…2 adultos, hotel"). Pra modelo de raciocínio o
+# teto do chat sobe; o tamanho da RESPOSTA continua regido pelo prompt (o teto
+# nunca foi o que deixava a fala curta, só o que a cortava).
+_MAX_TOKENS_REASONING = 4096
+
+
+class TruncatedReplyError(RuntimeError):
+    """Resposta de chat cortada no teto de tokens (`finish_reason == "length"`).
+
+    Frase pela metade nunca vai pro cliente: o erro faz o `route_and_ask`
+    seguir pra próxima perna da cadeia, como qualquer outra falha.
+    """
+
+
+def _is_reasoning_model(model: str | None) -> bool:
+    """Modelos que raciocinam DENTRO do completion (hoje: a família gpt-oss)."""
+    return "gpt-oss" in (model or "").lower()
+
+
+def _max_tokens(model: str | None, json_mode: bool) -> int:
+    if json_mode:
+        return _MAX_TOKENS_EXTRACT
+    return _MAX_TOKENS_REASONING if _is_reasoning_model(model) else _MAX_TOKENS
+
+
+def _raise_if_truncated(provider: str, model: str, finish_reason: Any, json_mode: bool) -> None:
+    """Chat cortado vira erro (→ próxima perna). Na extração o JSON truncado já
+    falha no parse e o chamador trata; não mexe nesse caminho."""
+    if not json_mode and finish_reason == "length":
+        logger.warning("%s/%s: resposta de chat cortada no teto de tokens", provider, model)
+        raise TruncatedReplyError(f"{provider}/{model}: finish_reason=length")
+
 
 # ---------------------------------------------------------------------------
 # Instrumentação de consumo (só medição — não altera comportamento)
@@ -306,10 +340,11 @@ async def _ask_malu_groq(
     client = _groq_client()
     messages = _build_openai_messages(history, system_prompt)
 
+    model = model or settings.groq_model
     kwargs: dict[str, Any] = {
-        "model": model or settings.groq_model,
+        "model": model,
         "messages": messages,
-        "max_tokens": _MAX_TOKENS_EXTRACT if json_mode else _MAX_TOKENS,
+        "max_tokens": _max_tokens(model, json_mode),
         # 0.2 (não 0.7): respostas mais previsíveis e aderentes às regras —
         # menos escapes (preço/milhas/inglês). Extração JSON segue em 0.0.
         "temperature": 0.0 if json_mode else 0.2,
@@ -323,6 +358,7 @@ async def _ask_malu_groq(
     choices = getattr(response, "choices", None) or []
     if not choices:
         return ""
+    _raise_if_truncated("groq", model, getattr(choices[0], "finish_reason", None), json_mode)
     message = choices[0].message
     return (getattr(message, "content", "") or "").strip()
 
@@ -351,7 +387,7 @@ async def _ask_openai_compat(
     payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "max_tokens": _MAX_TOKENS_EXTRACT if json_mode else _MAX_TOKENS,
+        "max_tokens": _max_tokens(model, json_mode),
         # Mesma régua do Groq: 0.2 no chat (aderente às regras), 0.0 na extração.
         "temperature": 0.0 if json_mode else 0.2,
     }
@@ -379,6 +415,16 @@ async def _ask_openai_compat(
     choices = data.get("choices") or []
     if not choices:
         return "", total
+    if provider == "mistral":
+        # Tokens do piso pago contam na trava MESMO quando a resposta vem
+        # cortada (foram cobrados). Os callers só registram após o retorno.
+        try:
+            _raise_if_truncated(provider, model, choices[0].get("finish_reason"), json_mode)
+        except TruncatedReplyError:
+            await budget.record_paid_tokens(total)
+            raise
+    else:
+        _raise_if_truncated(provider, model, choices[0].get("finish_reason"), json_mode)
     content = (choices[0].get("message") or {}).get("content") or ""
     return content.strip(), total
 

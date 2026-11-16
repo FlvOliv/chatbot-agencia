@@ -36,17 +36,27 @@ Doc de estado. Atualizar números e pendências; não narrar sessão.
   (≈ US$ 0,0065). Chat em ~6–7 s, extração em ~3,9 s. Acertou 6 de 7 campos; errou a `origem`
   ("saindo de Porto Alegre" veio nula na extração). O SDK reportou 0 token de thinking (não confirmado).
   Bruto em `evals/results/piloto-2026-11-16_gemini.jsonl`.
-- **Groq:** a chave nova (free) responde **404 `model_not_found`** para o `llama-3.3-70b-versatile`. A conta
-  só enxerga `openai/gpt-oss-120b`, `openai/gpt-oss-20b`, `qwen/qwen3.8-27b`, `allam-2-7b`, Whisper e guards.
-  Nenhum Llama de chat. A página oficial mostra o 70B como "Enterprise / Contact Sales".
+- **Llama 3.3 70B no Groq:** a chave nova (free) responde **404 `model_not_found`**. A conta só enxerga
+  `openai/gpt-oss-120b`, `openai/gpt-oss-20b`, `qwen/qwen3.8-27b`, `allam-2-7b`, Whisper e guards. A
+  página oficial mostra o 70B como "Enterprise / Contact Sales". **Decisão (16/11): o 2º modelo do eval
+  passa a ser `openai/gpt-oss-120b` no Groq**, o mesmo da perna Cerebras de produção.
+- **gpt-oss-120b (Groq):** fechou no turno 2, com 3 chamadas e 13.690 + 2.860 tokens (≈ US$ 0,0038).
+  Chat p50 em ~4,6 s. Acertou 7 de 7 campos. **Bug de produção achado:** a 1ª resposta bateu o teto
+  `_MAX_TOKENS=1024` com 958 tokens de raciocínio, e o texto pro cliente saiu cortado ("…2 adultos, hotel").
+  A perna Cerebras usa o mesmo teto (`app/ai.py:354`). O eval agora conta isso (`truncated_chat`).
 - O piloto achou 2 bugs do eval, já corrigidos: o booleano `True` vindo do extrator não era reconhecido, e
   um 404 de modelo gravava o caso em vez de parar a rodada.
+- Projeção da rodada completa (N=30, k=1, médias do piloto): Gemini ≈ 1,15M + 72k tokens (US$ 0,53 no
+  preço pago); gpt-oss ≈ 1,11M + 233k tokens (US$ 0,31). No free tier do Groq (200k tokens/dia, 8k/min),
+  são **~7 dias**.
 
 ## Próximos passos
-1. **Decidir o 2º modelo** do eval: Llama 3.3 70B não está acessível no Groq free.
+1. **Corrigir o corte em produção:** teto de saída maior pros modelos de raciocínio na perna
+   OpenAI-compatible e no Groq, ou `reasoning_effort` baixo. Hoje o cliente pode receber frase pela metade.
 2. **Conferir produção:** se a chave do Railway também perdeu o 70B, toda mensagem cai na perna
-   Cerebras (procurar `model_not_found` nos logs do Railway).
+   Cerebras (procurar `model_not_found` nos logs do Railway). Somado ao item 1, isso pode cortar respostas reais.
 3. Rodada completa **antes de 01/12/2026**, quando o `gemini-2.5-flash` passa a rotear pro 3.5 Flash-Lite.
+   Fatiar por dia: `python -m evals.run --provider all --run 2026-11-17` e repetir com o mesmo `--run`.
 4. `python -m evals.report --run <id>` → seção "Avaliação" no README com tabela, N, k, data e limitações.
 5. Só então a linha do eval entra no CV.
 

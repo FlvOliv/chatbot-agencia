@@ -8,7 +8,11 @@ providers:
   gemini:
     model: gemini-2.5-flash
   groq:
-    model: llama-3.3-70b-versatile
+    # Era llama-3.3-70b-versatile: a conta free do Groq dá 404 model_not_found
+    # pra ele (16/11/2026). gpt-oss-120b é o mesmo modelo da perna Cerebras de
+    # produção. Limite medido nos cabeçalhos: 8.000 tokens/min, 1.000 req/dia.
+    model: openai/gpt-oss-120b
+    sleep_between_turns_s: 60   # 1 turno ≈ 7–9k tokens; o TPM de 8k pede ~1 turno/min
 
 # Igual ao caminho de produção da Malu. COLETA_STATE_ENABLED liga a extração
 # da ficha a cada turno (Alavanca B). Confirmar no Railway se está ligada lá.
@@ -27,5 +31,5 @@ retry:
 
 # Travas antes de gastar cota/dinheiro.
 limits:
-  max_llm_calls_per_provider: 60   # por execução (free tier: Groq 70B ≈ 14 chamadas/dia)
+  max_llm_calls_per_provider: 120  # por execução; a cota diária do provedor também para a rodada
   max_cost_usd: 5.00               # corta a rodada se o custo estimado acumulado passar disso

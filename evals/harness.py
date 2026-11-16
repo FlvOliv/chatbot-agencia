@@ -117,8 +117,14 @@ def _usage_numbers(usage: Any) -> tuple[int, int, int]:
     if prompt is None:
         prompt = get("prompt_token_count", 0)
     completion = get("completion_tokens", None)
-    if completion is None:
-        completion = get("candidates_token_count", 0)
+    if completion is not None:
+        # Estilo OpenAI/Groq: completion_tokens JÁ inclui o raciocínio
+        # (completion_tokens_details.reasoning_tokens só detalha).
+        details = get("completion_tokens_details", None) or {}
+        reasoning = details.get("reasoning_tokens", 0) if isinstance(details, dict) else getattr(details, "reasoning_tokens", 0)
+        return int(prompt or 0), int(completion or 0), int(reasoning or 0)
+    # Gemini: candidates_token_count NÃO inclui o thinking, que é cobrado como saída.
+    completion = get("candidates_token_count", 0)
     thinking = get("thoughts_token_count", 0) or 0
     return int(prompt or 0), int(completion or 0) + int(thinking), int(thinking)
 

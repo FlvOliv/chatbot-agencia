@@ -94,11 +94,18 @@ def estimate(cases: list[dict[str, Any]], k: int, coleta: bool, price: dict[str,
     return {"calls": calls, "tokens_in": int(tin), "tokens_out": int(tout), "cost_usd": cost, "basis": basis}
 
 
-def load_prior(provider: str) -> list[dict]:
+def load_prior(provider: str, model: str) -> list[dict]:
+    """Linhas já gravadas do MESMO modelo (pra estimar tokens por chamada)."""
     rows: list[dict] = []
     for p in RESULTS.glob(f"*_{provider}.jsonl"):
         rows += [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
-    return rows
+    return [r for r in rows if r.get("model") == model]
+
+
+def _chat_cap() -> int:
+    from app import ai
+
+    return int(ai._MAX_TOKENS)
 
 
 def build_record(case: dict, provider: str, model: str, rep: int, run: str, turns: list) -> dict[str, Any]:
@@ -126,6 +133,9 @@ def build_record(case: dict, provider: str, model: str, rep: int, run: str, turn
         "guard_pass": metrics.check_guard(case.get("guard"), replies, finalize_turn is not None),
         "price_guard_triggered": any(t.price_attempt for t in turns),
         "malu_error_turns": sum(1 for t in turns if "error" in t.models),
+        # Resposta de chat que bateu o teto de saída de produção (app.ai._MAX_TOKENS):
+        # em modelo de raciocínio, o texto pro cliente sai cortado (piloto de 16/11).
+        "truncated_chat": sum(1 for c in calls if c.kind == "chat" and c.output_tokens >= _chat_cap()),
         "n_calls": len(calls),
         "n_call_errors": sum(1 for c in calls if c.error),
         "retries": sum(c.retries for c in calls),
@@ -170,7 +180,7 @@ async def run_provider(provider: str, args: argparse.Namespace, cfg: dict, prici
     out = results_path(args.run, provider)
     done = done_keys(out)
     todo = [(c, rep) for c in cases for rep in range(1, k + 1) if (c["id"], rep) not in done]
-    est = estimate([c for c, _ in todo], 1, bool(cfg["coleta_state_enabled"]), price, load_prior(provider))
+    est = estimate([c for c, _ in todo], 1, bool(cfg["coleta_state_enabled"]), price, load_prior(provider, model))
     print(f"\n=== {provider} / {model} · run {args.run}")
     print(f"pendentes: {len(todo)} (caso×rep) · já gravados: {len(done)}")
     print(
@@ -195,7 +205,9 @@ async def run_provider(provider: str, args: argparse.Namespace, cfg: dict, prici
         n0 = len(recorder.calls)
         try:
             turns = await harness.run_conversation(
-                case, synthetic_phone(case["id"], rep), float(cfg["sleep_between_turns_s"])
+                case,
+                synthetic_phone(case["id"], rep),
+                float(cfg["providers"][provider].get("sleep_between_turns_s", cfg["sleep_between_turns_s"])),
             )
         except harness.QuotaExhausted as exc:
             del recorder.calls[n0:]  # caso incompleto não entra; --resume refaz

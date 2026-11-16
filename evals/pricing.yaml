@@ -14,6 +14,18 @@ gemini-2.5-flash:
     a partir de 2026-12-01 as chamadas são roteadas para o Gemini 3.5 Flash-Lite
     e cobradas no preço dele.
 
+openai/gpt-oss-120b:
+  input_per_m: 0.15
+  output_per_m: 0.60          # inclui os tokens de raciocínio (vêm dentro de completion_tokens)
+  source: https://console.groq.com/docs/model/openai/gpt-oss-120b
+  checked: 2026-11-16
+  status: oficial
+  notes: >
+    Preço do Groq (cached input US$ 0,075/M, não usado no cálculo). Limites da conta free medidos
+    nos cabeçalhos x-ratelimit em 2026-11-16: 8.000 tokens/min e 1.000 requisições/dia.
+    A página de rate limits lista 200K tokens/dia.
+
+# Fora do eval desde 16/11/2026: a conta free do Groq dá 404 model_not_found. Mantido como registro.
 llama-3.3-70b-versatile:
   input_per_m: 0.59
   output_per_m: 0.79

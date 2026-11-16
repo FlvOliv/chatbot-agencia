@@ -99,6 +99,17 @@ def test_guard_forbid_require_e_no_finalize():
 
 
 # ------------------------------------------------------------------ agregados --
+def test_tokens_de_raciocinio_groq_e_gemini():
+    from evals.harness import _usage_numbers
+
+    # Groq/OpenAI: completion já inclui o raciocínio
+    groq = {"prompt_tokens": 72, "completion_tokens": 20, "completion_tokens_details": {"reasoning_tokens": 18}}
+    assert _usage_numbers(groq) == (72, 20, 18)
+    # Gemini: thinking vem à parte e é somado à saída cobrada
+    gem = SimpleNamespace(prompt_token_count=100, candidates_token_count=30, thoughts_token_count=50)
+    assert _usage_numbers(gem) == (100, 80, 50)
+
+
 def test_percentil_e_custo():
     assert M.percentile([1, 2, 3, 4], 50) == 2.5
     assert M.percentile([5], 95) == 5

@@ -1,8 +1,14 @@
-# Eval comparativo da Malu: Gemini 2.5 Flash × Llama 3.3 70B
+# Eval comparativo da Malu: Gemini 2.5 Flash × gpt-oss-120b (Groq)
 
-**Estado (16/11/2026): infraestrutura pronta, rodada completa ainda não feita.** Não há número
-publicado: um eval pela metade não vira tabela. `report.py` se recusa a gravar o `summary.md`
+**Estado (16/11/2026): infraestrutura pronta e piloto feito; rodada completa ainda não feita.** Não há
+número publicado: um eval pela metade não vira tabela. `report.py` se recusa a gravar o `summary.md`
 enquanto faltar algum caso × repetição.
+
+**Por que gpt-oss-120b e não Llama 3.3 70B:** o plano era comparar com o Llama 3.3 70B, o primário
+da cadeia de produção. Em 16/11/2026 a conta free do Groq respondeu `404 model_not_found` pra ele, e a
+página oficial passou a listá-lo como "Enterprise / Contact Sales". O `openai/gpt-oss-120b` está
+disponível no free tier e é o mesmo modelo da perna Cerebras de produção, que assume quando o
+Groq falha.
 
 ## O que mede
 
@@ -61,20 +67,23 @@ e cada chamada (tokens, latência, retries, erro).
 - Cota diária estourada (429 com "per day") **para a rodada sem gravar o caso em andamento**.
   O `--resume` implícito refaz esse caso depois. Um 429 por minuto ganha retry com backoff (20/40/80 s).
 
-## Limites do free tier (por que a rodada não fechou em 16/11)
-Cada chamada de chat leva o prompt inteiro da Malu, ~23,6 mil caracteres (≈7 mil tokens). A estimativa do
-`--dry-run` para N=30 e k=1 é ~1,26M tokens de entrada **por provedor**. No free tier, o Llama 3.3 70B do Groq
-tem teto de ~100 mil tokens por dia, o que dá umas 2 conversas por dia. Fechar a rodada leva ~2 semanas no
-free tier ou poucos dólares no tier pago (estimativa no `--dry-run`).
+## Limites do free tier
+Cada chamada de chat leva o prompt inteiro da Malu, ~23,6 mil caracteres (≈6,5 mil tokens). No Groq, a
+conta free do `gpt-oss-120b` tem **8.000 tokens/min** e 1.000 requisições/dia (medido nos cabeçalhos
+`x-ratelimit` em 16/11/2026); a página de rate limits lista 200 mil tokens/dia. Por isso o config usa
+60 s entre turnos no Groq, e a rodada se fatia em dias com `--run`. A estimativa por provedor sai do
+`--dry-run`, que usa a média de tokens observada depois do piloto.
 
 ## Limitações conhecidas (vão pro relatório)
 - Dados sintéticos e N pequeno; turnos roteirizados.
 - **Os dois caminhos de produção não usam a mesma configuração.** O Groq roda com temperatura 0.2 no chat
   (0.0 na extração) e `max_tokens` 1024/3000. O Gemini roda com o padrão do SDK `google.generativeai`:
   sem temperatura explícita, sem teto de saída e com thinking ligado no 2.5 Flash. O eval mede o caminho
-  **como está em produção**, sem igualar.
-- Preço na data da consulta (`pricing.yaml`). O preço do Llama 3.3 70B não aparece na página oficial
-  do Groq em 16/11/2026.
+  **como está em produção**, sem igualar. O gpt-oss-120b é modelo de raciocínio: esse raciocínio entra
+  em `completion_tokens` e disputa o teto de 1024 tokens do chat com a resposta.
+- O gpt-oss-120b no Groq não é exatamente a perna de produção, que roda o mesmo modelo na Cerebras
+  (outro hardware, outra latência). Qualidade e tokens devem ser próximos; a latência não se transfere.
+- Preço na data da consulta (`pricing.yaml`).
 - O `gemini-2.5-flash` está depreciado: a partir de 01/12/2026 o Google roteia as chamadas para o
   Gemini 3.5 Flash-Lite. Uma rodada depois dessa data mede outro modelo.
 - `COLETA_STATE_ENABLED=true` no config (uma extração extra por turno). Confirmar se produção está igual.

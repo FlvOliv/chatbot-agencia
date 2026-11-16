@@ -1,0 +1,31 @@
+# Configuração versionada do eval comparativo da Malu.
+# Mudou algo aqui → registrar no relatório (o summary.md copia este bloco).
+
+seed: 20261116            # ordem dos casos e telefones sintéticos
+k: 1                      # repetições por caso (k=3 quando a cota permitir)
+
+providers:
+  gemini:
+    model: gemini-2.5-flash
+  groq:
+    model: llama-3.3-70b-versatile
+
+# Igual ao caminho de produção da Malu. COLETA_STATE_ENABLED liga a extração
+# da ficha a cada turno (Alavanca B). Confirmar no Railway se está ligada lá.
+coleta_state_enabled: true
+
+# Ritmo: o free tier dos dois provedores limita requisições e tokens por minuto.
+sleep_between_turns_s: 6
+sleep_between_cases_s: 10
+
+# Retry com backoff em rate limit por minuto (429). Cota DIÁRIA estourada não
+# tem retry: a rodada para, o caso em andamento é descartado e o --resume
+# retoma dali no dia seguinte.
+retry:
+  max_retries: 3
+  backoff_s: [20, 40, 80]
+
+# Travas antes de gastar cota/dinheiro.
+limits:
+  max_llm_calls_per_provider: 60   # por execução (free tier: Groq 70B ≈ 14 chamadas/dia)
+  max_cost_usd: 5.00               # corta a rodada se o custo estimado acumulado passar disso

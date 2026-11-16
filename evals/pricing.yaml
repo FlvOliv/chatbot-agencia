@@ -1,0 +1,26 @@
+# Preço por 1M de tokens (USD). Cada entrada tem fonte e data da consulta.
+# Não chutar: se a fonte oficial não confirmar, `status` diz isso e o relatório
+# carrega a ressalva.
+
+gemini-2.5-flash:
+  input_per_m: 0.30
+  output_per_m: 2.50          # inclui tokens de "thinking"
+  source: https://aistudio.google.com/docs/pricing
+  checked: 2026-11-16
+  status: oficial
+  notes: >
+    Tier pago. No free tier o conteúdo é usado pra melhorar os produtos do Google
+    (no pago, não). A mesma página avisa que o gemini-2.5-flash está depreciado:
+    a partir de 2026-12-01 as chamadas são roteadas para o Gemini 3.5 Flash-Lite
+    e cobradas no preço dele.
+
+llama-3.3-70b-versatile:
+  input_per_m: 0.59
+  output_per_m: 0.79
+  source: https://www.getmaxim.ai/bifrost/llm-cost-calculator/provider/groq/model/llama-3.3-70b-versatile
+  checked: 2026-11-16
+  status: nao_confirmado_na_fonte_oficial
+  notes: >
+    Valor de agregadores (vários batem em 0.59/0.79). Em 2026-11-16 a página
+    oficial https://console.groq.com/docs/models mostrava o modelo como
+    "Enterprise / Contact Sales", sem preço publicado. Reconfirmar antes de publicar.

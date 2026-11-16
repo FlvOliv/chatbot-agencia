@@ -1,0 +1,2 @@
+# Dependências só do eval (além do requirements.txt da raiz).
+pyyaml>=6.0

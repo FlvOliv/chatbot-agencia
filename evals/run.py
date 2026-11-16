@@ -102,12 +102,6 @@ def load_prior(provider: str, model: str) -> list[dict]:
     return [r for r in rows if r.get("model") == model]
 
 
-def _chat_cap() -> int:
-    from app import ai
-
-    return int(ai._MAX_TOKENS)
-
-
 def build_record(case: dict, provider: str, model: str, rep: int, run: str, turns: list) -> dict[str, Any]:
     from evals import metrics
 
@@ -133,9 +127,10 @@ def build_record(case: dict, provider: str, model: str, rep: int, run: str, turn
         "guard_pass": metrics.check_guard(case.get("guard"), replies, finalize_turn is not None),
         "price_guard_triggered": any(t.price_attempt for t in turns),
         "malu_error_turns": sum(1 for t in turns if "error" in t.models),
-        # Resposta de chat que bateu o teto de saída de produção (app.ai._MAX_TOKENS):
-        # em modelo de raciocínio, o texto pro cliente sai cortado (piloto de 16/11).
-        "truncated_chat": sum(1 for c in calls if c.kind == "chat" and c.output_tokens >= _chat_cap()),
+        # Resposta de chat cortada no teto de tokens (finish_reason=length). Desde a
+        # correção de 16/11 a produção levanta TruncatedReplyError em vez de mandar
+        # frase pela metade, e o eval conta essas ocorrências.
+        "truncated_chat": sum(1 for c in calls if c.kind == "chat" and c.error and "TruncatedReplyError" in c.error),
         "n_calls": len(calls),
         "n_call_errors": sum(1 for c in calls if c.error),
         "retries": sum(c.retries for c in calls),

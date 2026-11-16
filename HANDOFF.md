@@ -43,7 +43,14 @@ Doc de estado. Atualizar números e pendências; não narrar sessão.
 - **gpt-oss-120b (Groq):** fechou no turno 2, com 3 chamadas e 13.690 + 2.860 tokens (≈ US$ 0,0038).
   Chat p50 em ~4,6 s. Acertou 7 de 7 campos. **Bug de produção achado:** a 1ª resposta bateu o teto
   `_MAX_TOKENS=1024` com 958 tokens de raciocínio, e o texto pro cliente saiu cortado ("…2 adultos, hotel").
-  A perna Cerebras usa o mesmo teto (`app/ai.py:354`). O eval agora conta isso (`truncated_chat`).
+  A perna Cerebras usava o mesmo teto. **Corrigido em 16/11:** modelo de raciocínio (`gpt-oss`) usa
+  `_MAX_TOKENS_REASONING=4096` no chat, e `finish_reason=length` no chat vira `TruncatedReplyError`
+  (a cadeia segue pra próxima perna; no Mistral os tokens cortados ainda contam na trava). Prova real
+  (`results/prova-corte-2026-11-16_groq.jsonl`): o turno 3 usou 1.438 tokens de saída (1.114 de
+  raciocínio), passou do teto antigo e chegou inteiro. 7/7 campos, 0 corte.
+- **Achado de comportamento (não corrigido):** na prova, o cliente disse "ninguém me indicou" já no 1º turno,
+  e a Malu perguntou a indicação de novo no turno 2. O gate só aceita a indicação "tratada" se a Malu
+  perguntou ou se `indicado_por` veio preenchido, e "ninguém" vira nulo.
 - O piloto achou 2 bugs do eval, já corrigidos: o booleano `True` vindo do extrator não era reconhecido, e
   um 404 de modelo gravava o caso em vez de parar a rodada.
 - Projeção da rodada completa (N=30, k=1, médias do piloto): Gemini ≈ 1,15M + 72k tokens (US$ 0,53 no
@@ -51,10 +58,11 @@ Doc de estado. Atualizar números e pendências; não narrar sessão.
   são **~7 dias**.
 
 ## Próximos passos
-1. **Corrigir o corte em produção:** teto de saída maior pros modelos de raciocínio na perna
-   OpenAI-compatible e no Groq, ou `reasoning_effort` baixo. Hoje o cliente pode receber frase pela metade.
+1. **Conferir o deploy da correção do corte** no Railway (se o auto-deploy da `main` estiver ligado, sobe
+   sozinho) e procurar `resposta de chat cortada` nos logs.
 2. **Conferir produção:** se a chave do Railway também perdeu o 70B, toda mensagem cai na perna
-   Cerebras (procurar `model_not_found` nos logs do Railway). Somado ao item 1, isso pode cortar respostas reais.
+   Cerebras (procurar `model_not_found` nos logs do Railway).
+   Se perdeu, trocar o `GROQ_MODEL` (o `gpt-oss-120b` está no free).
 3. Rodada completa **antes de 01/12/2026**, quando o `gemini-2.5-flash` passa a rotear pro 3.5 Flash-Lite.
    Fatiar por dia: `python -m evals.run --provider all --run 2026-11-17` e repetir com o mesmo `--run`.
 4. `python -m evals.report --run <id>` → seção "Avaliação" no README com tabela, N, k, data e limitações.

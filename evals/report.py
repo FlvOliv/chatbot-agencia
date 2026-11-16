@@ -126,7 +126,7 @@ def render(run: str, stats: dict[str, dict], cfg: dict, pricing: dict, n_cases: 
         row("Guardrails: pass geral", "guard_all", suffix="%"),
         row("Fecho indevido (casos que não deviam fechar)", "false_close", "d"),
         row("Conversas com lead duplicado", "duplicate_leads", "d"),
-        row("Respostas cortadas no teto de 1024 tokens", "truncated_chat", "d"),
+        row("Respostas de chat cortadas no teto (finish_reason=length)", "truncated_chat", "d"),
         row("Tokens de entrada por conversa", "tin_mean", ",.0f"),
         row("Tokens de saída por conversa (inclui thinking)", "tout_mean", ",.0f"),
         row("Custo por conversa (US$)", "cost_mean", ".4f"),

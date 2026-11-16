@@ -4,11 +4,32 @@ Assistente virtual de atendimento nível 1 da agência **Lu Milhas & Viagens**.
 Atende clientes via WhatsApp, coleta informações de viagem e gera um briefing estruturado para a Lu (atendente humana) fechar a cotação.
 
 - Integração oficial via **Meta WhatsApp Cloud API** (sem risco de banimento)
-- **Arquitetura multi-provider de IA** com switch dinâmico via `.env`:
-  - Primário: **Google Gemini 2.5 Flash** (camada gratuita do AI Studio)
-  - Stand-by: **Groq Llama 3.3 70B** (camada gratuita generosa — ativar com `AI_PRIMARY=groq` no `.env`)
-- Backend: **FastAPI** async · **PostgreSQL 16** · **Redis 7** · follow-ups por **cron externo** (`POST /internal/tick`)
-- Persona da Malu definida em `app/prompts/malu_v4.md` — inclui regras anti-preço, anti-prompt-injection, filtro off-topic e tabela de temperatura do lead
+- **Roteamento multi-LLM com fallback automático** (`app/ai.py::route_and_ask`). Em produção a cadeia é:
+  1. **Groq · Llama 3.3 70B** (primário)
+  2. **Cerebras · gpt-oss-120b** (camada gratuita extra)
+  3. **Mistral** (piso pago, só com `PAID_FLOOR_ENABLED` e com teto mensal de tokens em `app/budget.py`)
+  4. **Google Gemini 2.5 Flash** (último recurso)
+
+  Cada perna só entra se tiver chave; erro ou resposta vazia passa pra próxima. A ordem segue a LGPD: o briefing carrega dado pessoal, e os provedores que não treinam com os dados vêm antes do Gemini gratuito.
+- **Extração estruturada do briefing em JSON** (`extract_lead_data`, temperatura 0) com **gate de completude** por tipo de atendimento (`app/briefing.py::gate_missing_fields`): a Malu não fecha o lead com coleta furada.
+- Backend: **FastAPI** async · **PostgreSQL 16** · **Redis 7** (histórico com fallback pro Postgres) · follow-ups por **cron externo** (`POST /internal/tick`) · multi-tenant com segredos por agência cifrados (Fernet)
+- Persona da Malu em `app/prompts/malu_v4.md` (conteúdo na **versão 5.0**): regras contra cotar preço, contra prompt injection e contra fuga de escopo, mais a tabela de temperatura do lead. Um `price_guard` no código mascara valor que escape do modelo.
+- Painel de atendimento humano (Next.js, pasta `crm/`): conversas ao vivo, leads, tags, áudio e PWA.
+
+---
+
+## Origem e autoria
+
+Este repositório é um **fork** de [`gustavomarcelloprf/chatbot-agencia`](https://github.com/gustavomarcelloprf/chatbot-agencia). O histórico de commits fica preservado aqui como registro de quem fez o quê.
+
+- **Gustavo Marcello** (10 commits, 28/05 a 05/06/2026): versão 1 do bot (webhook, roteador Gemini/Groq, prompt v4), lembretes via Celery, suporte inicial a áudio, scripts de deploy no Railway e a primeira versão do painel de insights.
+- **Flávio Henrique Oliveira** (51 commits, 01/06 a 06/07/2026), a partir da v1:
+  - fallback automático entre provedores e, depois, a cadeia de 4 provedores com piso pago e trava de orçamento;
+  - extração do briefing em JSON, gate de completude, anti-loop, anti-amnésia do histórico e ficha de coleta persistida;
+  - prompt da v4.4 até a v5.0, calibrado com o checklist real da agência;
+  - transcrição de áudio (Whisper via Groq), troca do Celery por agendamento em Postgres com cron, e multi-tenant;
+  - inbox de atendimento humano, login, tags e redesign do painel;
+  - suíte de conformidade da Malu, que roda o pipeline real com IA real e checagens automáticas (`scripts/conformance_probe.py`), e 244 das 314 funções de teste (contagem por `git blame`).
 
 ---
 
@@ -28,7 +49,7 @@ Atende clientes via WhatsApp, coleta informações de viagem e gera um briefing 
 ### 1. Clone e prepare o ambiente
 
 ```bash
-git clone https://github.com/gustavomarcelloprf/chatbot-agencia.git malu-bot
+git clone https://github.com/FlvOliv/chatbot-agencia.git malu-bot
 cd malu-bot
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
@@ -44,12 +65,14 @@ cp .env.example .env
 #   LUCIANA_PHONE (E.164 sem +)
 ```
 
-Para trocar de provider de IA, edite uma linha:
+A cadeia de IA é montada pelas variáveis abaixo (configuração de produção):
 ```env
-AI_PRIMARY=gemini   # padrão atual
-# AI_PRIMARY=groq   # ativar Groq como primário (cole também GROQ_API_KEY)
+AI_PRIMARY=groq          # primeira perna
+AI_FALLBACK=gemini       # última perna (none | auto | gemini | groq)
+CEREBRAS_API_KEY=...     # vazio = perna Cerebras desligada
+PAID_FLOOR_ENABLED=true  # liga o piso pago (Mistral), com MONTHLY_PAID_TOKEN_CAP
 ```
-e reinicie o `uvicorn`. **Nenhuma mudança de código necessária.**
+Reinicie o `uvicorn` depois de mudar. **Nenhuma mudança de código necessária.**
 
 ### 3. Suba Postgres + Redis
 
@@ -111,12 +134,13 @@ Copie a URL `https://XXXX.ngrok-free.dev` — você vai colar no Meta Developer 
 1. Cliente manda mensagem no WhatsApp
 2. Meta envia POST /webhook → app valida HMAC-SHA256
 3. Backend retorna 200 imediatamente e processa em background
-4. Recupera histórico do Redis (TTL 24h)
-5. Chama o provider ativo (Gemini ou Groq) com o system prompt da Malu + histórico
-6. Salva resposta no Redis + envia ao cliente via Meta API
-7. Se a resposta contém "## Resumo da Solicitação":
-   - Salva lead no Postgres
-   - Notifica Lu via WhatsApp
+4. Recupera histórico do Redis (TTL 24h; se sumir, reconstrói do Postgres)
+5. Com COLETA_STATE_ENABLED, extrai a ficha de coleta em JSON e injeta o estado no contexto da Malu
+6. Chama o roteador de IA (cadeia com fallback) com o system prompt + histórico
+7. price_guard + anti-loop na resposta; salva e envia ao cliente via Meta API
+8. Quando a coleta fecha e o gate de completude aprova:
+   - Salva o lead no Postgres com o briefing renderizado
+   - Notifica a Lu via WhatsApp
 ```
 
 ---
@@ -127,7 +151,15 @@ Copie a URL `https://XXXX.ngrok-free.dev` — você vai colar no Meta Developer 
 pytest tests/ -v
 ```
 
-**27 testes**, todos com **fakeredis** e mocks dos providers — não dependem de serviços externos.
+**392 testes** coletados pelo pytest (314 funções, algumas parametrizadas), todos com **fakeredis** e mocks dos providers. Não dependem de serviço externo. No Windows, o `tzdata` do `requirements.txt` fornece o fuso `America/Sao_Paulo`.
+
+### Suíte de conformidade (IA real, sem WhatsApp)
+
+```bash
+COLETA_STATE_ENABLED=true PYTHONUTF8=1 python -m scripts.conformance_probe
+```
+
+Dirige o pipeline real (`_process_text_message`) com IA real e I/O externo stubbado, e dá veredito automático por cenário: repetição, re-saudação, vazamento de preço, fecho no turno certo, transferência, pergunta de indicação e silêncio pós-fecho.
 
 ### Simular uma conversa real (sem WhatsApp)
 
@@ -178,13 +210,14 @@ chatbot-agencia/
 │   ├── models.py            # Lead + Conversation ORM
 │   ├── session.py           # Histórico Redis
 │   ├── whatsapp.py          # Cliente Meta Cloud API
-│   ├── ai.py                # Router multi-provider (Gemini/Groq)
-│   ├── briefing.py          # Parser de briefing + notificação Lu
-│   ├── prompts/malu_v4.md   # System prompt da Malu (v4 com anti-injection)
+│   ├── ai.py                # Roteador multi-LLM com fallback + extração JSON
+│   ├── briefing.py          # Campos do briefing, gate de completude, recap
+│   ├── budget.py            # Teto mensal de tokens do piso pago
+│   ├── prompts/malu_v4.md   # System prompt da Malu (conteúdo v5.0)
 │   ├── reports.py           # resumo diário de leads (disparado pelo cron)
 │   └── api/tick.py          # POST /internal/tick (cron) → follow-ups + resumo
 ├── alembic/                 # Migrations
-├── tests/                   # pytest (27 testes)
+├── tests/                   # pytest (392 testes)
 ├── scripts/
 │   ├── seed_test.py         # Simula conversa completa de 8 turnos
 │   └── check_setup.py       # Valida ambiente (env, Redis, Postgres, IA)

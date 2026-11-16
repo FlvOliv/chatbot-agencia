@@ -8,8 +8,8 @@ Doc de estado. Atualizar números e pendências; não narrar sessão.
 - Suíte: **392 testes** coletados, 392 passando no Windows/Python 3.12 (precisou do `tzdata`).
   Com os testes do eval (`tests/test_evals.py`): 419.
 - Prompt em produção: `app/prompts/malu_v4.md`, conteúdo **v5.0**.
-- Branches locais: `docs/origem-autoria` (README com "Origem e autoria" + `tzdata`) e `feat/evals`
-  (infraestrutura do eval). **Nada enviado pro GitHub ainda.**
+- `docs/origem-autoria` (README com "Origem e autoria" + `tzdata`) e `feat/evals` (infraestrutura do
+  eval) mergeadas na `main` e publicadas no GitHub em 16/11/2026. Nenhum código de `app/` mudou.
 
 ## Pendências do contexto do eval (respondidas lendo o código)
 1. **Fallback automático.** `app/ai.py::route_and_ask` percorre `_build_attempts()`: groq/llama-3.3-70b

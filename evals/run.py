@@ -115,17 +115,28 @@ def results_path(run: str, provider: str) -> Path:
     return RESULTS / f"{run}_{provider}.jsonl"
 
 
+def infra_error(row: dict) -> bool:
+    """A linha tem chamada que terminou em limite de taxa do free tier (mesmo
+    depois dos retries). Isso mede a conta, não o modelo: o caso é refeito."""
+    from evals.harness import is_rate_limit_text
+
+    return any(
+        c.get("error") and is_rate_limit_text(c["error"])
+        for t in row.get("turns", []) for c in t.get("calls", [])
+    )
+
+
 def done_keys(path: Path) -> set[tuple[str, int]]:
-    """Casos já gravados. Linha SEM `code_version` (gravada antes de 16/11, por
-    código anterior às correções) não conta: é refeita, e o relatório fica com a
-    gravação mais nova (última vence)."""
+    """Casos já gravados. Não contam (são refeitos, e o relatório fica com a
+    gravação mais nova): linha SEM `code_version` (código anterior às correções
+    de 16/11) e linha com erro de limite de taxa (`infra_error`)."""
     if not path.exists():
         return set()
     out = set()
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip():
             r = json.loads(line)
-            if r.get("code_version"):
+            if r.get("code_version") and not infra_error(r):
                 out.add((r["case_id"], r["rep"]))
     return out
 

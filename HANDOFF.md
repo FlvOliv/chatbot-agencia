@@ -5,8 +5,8 @@ Doc de estado. Atualizar números e pendências; não narrar sessão.
 ## Estado (16/11/2026)
 - Repo restaurado no PC novo a partir do fork público (`main@e17e079`, 06/07/2026). O que não tinha
   sido enviado pro GitHub do PC antigo **não está aqui** (o `.env` inclusive).
-- Suíte: **392 testes** coletados, 392 passando no Windows/Python 3.12 (precisou do `tzdata`).
-  Com os testes do eval (`tests/test_evals.py`): 419.
+- Suíte: **392 testes** de produção no clone original; hoje **453** passando no Windows/Python 3.12
+  (com os testes das 2 correções e os do eval; precisou do `tzdata`).
 - Prompt em produção: `app/prompts/malu_v4.md`, conteúdo **v5.0**.
 - `docs/origem-autoria` (README com "Origem e autoria" + `tzdata`) e `feat/evals` (infraestrutura do
   eval) mergeadas na `main` e publicadas no GitHub em 16/11/2026. Nenhum código de `app/` mudou.
@@ -60,9 +60,16 @@ Doc de estado. Atualizar números e pendências; não narrar sessão.
 - **2º braço trocado em 16/11: Gemini 2.5 Flash → `openai/gpt-oss-20b` (Groq).** O Gemini free dá ~20 req/dia,
   a rodada pede ~180 chamadas por braço (6 por conversa, medido em 4 casos) e o billing pede cartão (o Flávio não
   vai ativar). Os braços agora são `groq` (120b) e `groq-20b` em `evals/config.yaml` (`provider` + `model`).
-  **Bloqueio atual:** o 20b responde 403 `model_permission_blocked_org`; o Flávio libera em
-  https://console.groq.com/settings/limits. Depois disso: piloto
-  `python -m evals.run --provider groq-20b --run piloto-2026-11-16 --cases feliz-05`.
+  O Flávio liberou o 20b na org do Groq em 16/11 (vinha bloqueado: 403 `model_permission_blocked_org`).
+- **Piloto do 20b (16/11, `results/piloto-2026-11-16_groq-20b.jsonl`), não é resultado:**
+  - Raciocínio muito maior e instável: 1.313 a 4.094 tokens no 1º chat (o 120b fica perto de 1k). No
+    `feliz-05` estourou o teto de 4096 (4.094 de raciocínio, 2 de resposta) → `TruncatedReplyError` → a
+    conversa foi pra Lu. O eval conta isso em "respostas cortadas".
+  - `feliz-02` fechou no turno 4 com 8/9 campos (o 120b fechou no 4 também).
+  - **Achado de infra:** o Groq free devolve **413** "Request too large … tokens per minute (TPM)" quando uma
+    resposta longa deixa o balde de tokens/min negativo. Quebrou o `ambiguo-02` no 20b **e no 120b** (rodada
+    `2026-11-17`). Agora o 413 de TPM ganha retry, e a linha que terminou em erro de cota é refeita na próxima
+    execução (`run.infra_error`). Prova: refeitos, os 2 casos rodaram com 0 erro (7 e 3 retries).
 - O piloto achou 2 bugs do eval, já corrigidos: o booleano `True` vindo do extrator não era reconhecido, e
   um 404 de modelo gravava o caso em vez de parar a rodada.
 - Projeção da rodada completa (N=30, k=1): ~180 chamadas e ~1M de tokens por braço; 120b ≈ US$ 0,20 no preço

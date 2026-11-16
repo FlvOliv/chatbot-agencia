@@ -56,10 +56,18 @@ def _is_network(exc: BaseException) -> bool:
     return False
 
 
+def is_rate_limit_text(text: str) -> bool:
+    """Texto de erro de limite de taxa. Inclui o 413 do Groq free ("Request too large
+    ... on tokens per minute (TPM)"), visto em 16/11: o balde de tokens/min fica
+    negativo depois de uma resposta com muito raciocínio e a chamada seguinte é
+    recusada. Não é erro do modelo; esperar resolve."""
+    t = text.lower()
+    return "429" in t or "rate limit" in t or "tokens per minute" in t or "(tpm)" in t
+
+
 def _is_rate_limit(exc: BaseException) -> bool:
     name = type(exc).__name__.lower()
-    text = str(exc).lower()
-    return "ratelimit" in name or "resourceexhausted" in name or "429" in text or "rate limit" in text
+    return "ratelimit" in name or "resourceexhausted" in name or is_rate_limit_text(str(exc))
 
 
 def _is_daily_quota(exc: BaseException) -> bool:

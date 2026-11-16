@@ -306,3 +306,43 @@ def test_bracos_do_config_resolvem_provedor_real_e_preco():
     assert arm_provider({"providers": {"gemini": {"model": "x"}}}, "gemini") == "gemini"
     for arm, spec in cfg["providers"].items():
         assert pricing[spec["model"]]["status"] == "oficial", arm
+
+
+async def test_harness_413_de_tpm_do_groq_ganha_retry(harness_isolado):
+    """16/11: o Groq free devolve 413 'Request too large ... tokens per minute (TPM)'
+    quando o balde de tokens/min está negativo. É limite de taxa, não erro do modelo."""
+    h = harness_isolado
+    state = {"n": 0}
+
+    class APIStatusError(Exception):
+        pass
+
+    async def flaky(provider, history, system_prompt, json_mode=False, model=None):  # noqa: ANN001
+        state["n"] += 1
+        if state["n"] == 1:
+            raise APIStatusError(
+                "Error code: 413 - Request too large for model `openai/gpt-oss-20b` on tokens per "
+                "minute (TPM): Limit 8000, Requested 10304"
+            )
+        return "Oi! Pra onde vamos?"
+
+    h._real_ask_provider = flaky
+    rec = h.install("groq", "openai/gpt-oss-20b", CFG, PRICE)
+    await h.run_conversation({"id": "t", "category": "feliz", "turns": ["oi"]}, "550000000009", 0)
+    assert rec.calls[0].retries == 1 and rec.calls[0].error is None
+
+
+def test_linha_com_erro_de_cota_e_refeita(tmp_path):
+    from evals.run import done_keys
+
+    def row(case_id, err):
+        return {"case_id": case_id, "rep": 1, "code_version": "abc",
+                "turns": [{"calls": [{"error": err}]}]}
+
+    f = tmp_path / "r.jsonl"
+    f.write_text("\n".join(json.dumps(r) for r in [
+        row("ok", None),
+        row("tpm", "APIStatusError: Error code: 413 - Request too large ... tokens per minute (TPM)"),
+        row("modelo", "TruncatedReplyError: groq/x: finish_reason=length"),
+    ]), encoding="utf-8")
+    assert done_keys(f) == {("ok", 1), ("modelo", 1)}

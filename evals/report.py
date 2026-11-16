@@ -35,7 +35,13 @@ def _load(path: Path) -> list[dict]:
     if not path.exists():
         return []
     rows = [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
-    dedup = {(r["case_id"], r["rep"]): r for r in rows}  # última gravação vence
+    # Última gravação vence; linha sem code_version (código antigo) só fica se
+    # não houver outra do mesmo caso × repetição.
+    dedup: dict[tuple[str, int], dict] = {}
+    for r in rows:
+        key = (r["case_id"], r["rep"])
+        if r.get("code_version") or key not in dedup:
+            dedup[key] = r
     return list(dedup.values())
 
 

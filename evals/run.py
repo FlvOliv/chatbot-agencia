@@ -87,13 +87,17 @@ def results_path(run: str, provider: str) -> Path:
 
 
 def done_keys(path: Path) -> set[tuple[str, int]]:
+    """Casos já gravados. Linha SEM `code_version` (gravada antes de 16/11, por
+    código anterior às correções) não conta: é refeita, e o relatório fica com a
+    gravação mais nova (última vence)."""
     if not path.exists():
         return set()
     out = set()
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip():
             r = json.loads(line)
-            out.add((r["case_id"], r["rep"]))
+            if r.get("code_version"):
+                out.add((r["case_id"], r["rep"]))
     return out
 
 

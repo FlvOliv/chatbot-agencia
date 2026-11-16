@@ -138,6 +138,25 @@ def test_dataset_valido_e_sintetico():
         assert not any(__import__("re").search(r"\d{8,}", t) for t in r["turns"])
 
 
+def test_linha_sem_versao_e_refeita_e_perde_pra_nova(tmp_path):
+    """Linhas gravadas pelo código antigo (sem code_version) não contam como feitas
+    e, no relatório, perdem pra gravação nova do mesmo caso (rodada de 16/11)."""
+    from evals.report import _load
+    from evals.run import done_keys
+
+    p = tmp_path / "r_groq.jsonl"
+    old = {"case_id": "a", "rep": 1, "tag": "velha"}
+    new = {"case_id": "a", "rep": 1, "code_version": "abc1234", "tag": "nova"}
+    other = {"case_id": "b", "rep": 1, "code_version": "abc1234", "tag": "b"}
+    p.write_text("\n".join(json.dumps(x) for x in (old, other)) + "\n", encoding="utf-8")
+    assert done_keys(p) == {("b", 1)}
+    p.write_text("\n".join(json.dumps(x) for x in (old, other, new)) + "\n", encoding="utf-8")
+    assert {r["tag"] for r in _load(p)} == {"nova", "b"}
+    # e uma linha nova seguida de uma velha não é sobrescrita pela velha
+    p.write_text("\n".join(json.dumps(x) for x in (new, old)) + "\n", encoding="utf-8")
+    assert [r["tag"] for r in _load(p)] == ["nova"]
+
+
 def test_telefone_sintetico_estavel_e_inexistente():
     from evals.run import synthetic_phone
 

@@ -45,6 +45,31 @@ def _load(path: Path) -> list[dict]:
     return list(dedup.values())
 
 
+_TREE_CACHE: dict[str, str] = {}
+
+
+def row_app_version(r: dict) -> str:
+    """Versão do código da Malu (`app/`) que gerou a linha. Linhas gravadas antes
+    do campo `app_version` têm só o commit: o hash de `app/` sai do git."""
+    if r.get("app_version"):
+        return r["app_version"]
+    cv = r.get("code_version")
+    if not cv:
+        return "sem registro"
+    sha, _, dirty = cv.partition("-")
+    if sha not in _TREE_CACHE:
+        import subprocess
+
+        try:
+            _TREE_CACHE[sha] = subprocess.run(
+                ["git", "rev-parse", "--short", f"{sha}:app"],
+                cwd=EVALS_DIR.parent, capture_output=True, text=True, check=True,
+            ).stdout.strip()
+        except Exception:  # noqa: BLE001
+            _TREE_CACHE[sha] = f"commit {sha}"
+    return _TREE_CACHE[sha] + (f"-{dirty}" if dirty else "")
+
+
 def _fmt(v: float | None, spec: str = ".1f", suffix: str = "") -> str:
     return "—" if v is None else f"{v:{spec}}{suffix}"
 
@@ -80,7 +105,7 @@ def provider_stats(rows: list[dict]) -> dict[str, Any]:
 
     return {
         "n_rows": len(rows),
-        "versions": sorted({r.get("code_version", "sem registro") for r in rows}),
+        "versions": sorted({row_app_version(r) for r in rows}),
         "per_field": per_field,
         "field_mean": M.mean(per_field.values()),
         "field_mean_closed": 100 * sum(cond_hits) / len(cond_hits) if cond_hits else None,
@@ -123,7 +148,7 @@ def render(run: str, stats: dict[str, dict], cfg: dict, pricing: dict, n_cases: 
         f"N = {n_cases} conversas sintéticas · k = {cfg['k']} · linhas por provedor: "
         + ", ".join(f"{p} {stats[p]['n_rows']}" for p in provs),
         "",
-        "Código: " + "; ".join(f"{p} {', '.join(stats[p]['versions'])}" for p in provs),
+        "Código da Malu (hash de app/): " + "; ".join(f"{p} {', '.join(stats[p]['versions'])}" for p in provs),
         "",
     ]
     all_versions = {v for p in provs for v in stats[p]["versions"]}

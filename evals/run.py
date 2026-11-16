@@ -76,6 +76,30 @@ def code_version() -> str:
     return _CODE_VERSION
 
 
+_APP_VERSION: str | None = None
+
+
+def app_version() -> str:
+    """Hash da árvore de `app/` (o código da Malu). Commit que só mexe no eval ou
+    nos docs não muda esse hash; é ele que decide se uma rodada fatiada em dias
+    está comparável."""
+    global _APP_VERSION
+    if _APP_VERSION is None:
+        import subprocess
+
+        try:
+            tree = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD:app"], cwd=ROOT, capture_output=True, text=True, check=True
+            ).stdout.strip()
+            dirty = subprocess.run(
+                ["git", "status", "--porcelain", "--", "app"], cwd=ROOT, capture_output=True, text=True, check=True
+            ).stdout.strip()
+            _APP_VERSION = tree + ("-dirty" if dirty else "")
+        except Exception:  # noqa: BLE001
+            _APP_VERSION = "desconhecido"
+    return _APP_VERSION
+
+
 def synthetic_phone(case_id: str, rep: int) -> str:
     """Telefone sintético estável (DDI 55 + DDD 00, que não existe)."""
     digits = int(hashlib.sha256(f"{case_id}:{rep}".encode()).hexdigest(), 16) % 10**8
@@ -141,6 +165,7 @@ def build_record(case: dict, provider: str, model: str, rep: int, run: str, turn
     return {
         "run": run,
         "code_version": code_version(),
+        "app_version": app_version(),
         "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "case_id": case["id"],
         "category": case["category"],

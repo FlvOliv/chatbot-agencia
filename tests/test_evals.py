@@ -68,6 +68,10 @@ def test_idades_e_booleanos():
     assert M.field_match("hospedagem_incluida", "sim", "Sim, hotel pé na areia")
     assert M.field_match("hospedagem_incluida", "não", "Não, só aéreo")
     assert not M.field_match("bagagem_despachada", "sim", "Não, só de mão")
+    # o extrator JSON devolve bool de verdade às vezes (piloto de 16/11)
+    assert M.field_match("hospedagem_incluida", "sim", True)
+    assert M.field_match("hospedagem_incluida", "não", False)
+    assert M.field_match("hospedagem_incluida", "sim", "true")
 
 
 def test_score_fields_sem_briefing_e_tudo_errado():
@@ -211,3 +215,21 @@ async def test_harness_retry_em_429_e_para_na_cota_diaria(harness_isolado):
     h._real_ask_provider = daily
     with pytest.raises(h.QuotaExhausted):
         await h.run_conversation({"id": "t2", "category": "feliz", "turns": ["oi"]}, "550000000003", 0)
+
+
+async def test_harness_para_em_modelo_sem_acesso(harness_isolado):
+    """404 model_not_found (visto no piloto de 16/11 com o Llama 3.3 70B no Groq)
+    é infra, não resultado: a rodada para em vez de gravar o caso."""
+    h = harness_isolado
+
+    class NotFoundError(Exception):
+        pass
+
+    async def missing(provider, history, system_prompt, json_mode=False, model=None):  # noqa: ANN001
+        raise NotFoundError("Error code: 404 - {'code': 'model_not_found'}")
+
+    h._real_ask_provider = missing
+    rec = h.install("groq", "llama-3.3-70b-versatile", CFG, PRICE)
+    with pytest.raises(h.QuotaExhausted):
+        await h.run_conversation({"id": "t3", "category": "feliz", "turns": ["oi"]}, "550000000004", 0)
+    assert rec.calls[0].retries == 0

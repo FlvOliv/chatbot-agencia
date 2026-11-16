@@ -49,6 +49,21 @@ def _is_daily_quota(exc: BaseException) -> bool:
     return _is_rate_limit(exc) and any(m in text for m in _DAILY_MARKERS)
 
 
+def _is_fatal_setup(exc: BaseException) -> bool:
+    """Modelo inexistente/sem acesso ou chave inválida: não é resultado do modelo,
+    é infra. A rodada para em vez de gravar um caso cheio de erro."""
+    name = type(exc).__name__.lower()
+    text = str(exc).lower()
+    return (
+        "notfound" in name
+        or "model_not_found" in text
+        or "authentication" in name
+        or "permissiondenied" in name
+        or "api key not valid" in text
+        or "invalid_api_key" in text
+    )
+
+
 @dataclass
 class CallLog:
     """Uma chamada lógica de LLM (pode ter tido retries)."""
@@ -144,7 +159,7 @@ async def _traced_ask_provider(
         except Exception as exc:  # noqa: BLE001
             rec.latency_ms = (time.perf_counter() - t0) * 1000
             rec.error = f"{type(exc).__name__}: {str(exc)[:300]}"
-            if _is_daily_quota(exc):
+            if _is_daily_quota(exc) or _is_fatal_setup(exc):
                 raise QuotaExhausted(rec.error) from exc
             if _is_rate_limit(exc) and attempt < len(r.retry_backoff_s):
                 await asyncio.sleep(r.retry_backoff_s[attempt])

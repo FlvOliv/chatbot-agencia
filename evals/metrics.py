@@ -96,7 +96,14 @@ def parse_ages(value: Any) -> set[int]:
 
 
 def parse_bool(value: Any) -> bool | None:
+    # O extrator JSON às vezes devolve booleano de verdade (visto no piloto de 16/11).
+    if isinstance(value, bool):
+        return value
     words = set(fold(value).split())
+    if words & {"false"}:
+        return False
+    if words & {"true"}:
+        return True
     if words & {"nao", "sem", "dispensa", "dispenso", "nenhum", "nenhuma"}:
         return False
     if words & {"sim", "com", "quer", "quero", "inclui", "incluir", "incluida", "precisa", "preciso"}:
@@ -105,6 +112,8 @@ def parse_bool(value: Any) -> bool | None:
 
 
 def is_empty(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
     text = fold(value)
     return not text or text in {"none", "null", "nao informado"} or text.startswith("pendente")
 

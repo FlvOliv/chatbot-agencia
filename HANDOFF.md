@@ -31,12 +31,22 @@ Doc de estado. Atualizar números e pendências; não narrar sessão.
 - `metrics.py`: normalização e métricas puras. `report.py` gera o `summary.md` só com a rodada completa.
 - `dataset/casos.jsonl`: 30 casos sintéticos em 7 categorias.
 
+## Piloto (16/11/2026, caso `feliz-05`, k=1). Valida o encanamento, não é resultado
+- **Gemini 2.5 Flash:** fechou o briefing no turno 2, com 3 chamadas (2 de chat, 1 de extração) e 14.179 + 883 tokens
+  (≈ US$ 0,0065). Chat em ~6–7 s, extração em ~3,9 s. Acertou 6 de 7 campos; errou a `origem`
+  ("saindo de Porto Alegre" veio nula na extração). O SDK reportou 0 token de thinking (não confirmado).
+  Bruto em `evals/results/piloto-2026-11-16_gemini.jsonl`.
+- **Groq:** a chave nova (free) responde **404 `model_not_found`** para o `llama-3.3-70b-versatile`. A conta
+  só enxerga `openai/gpt-oss-120b`, `openai/gpt-oss-20b`, `qwen/qwen3.8-27b`, `allam-2-7b`, Whisper e guards.
+  Nenhum Llama de chat. A página oficial mostra o 70B como "Enterprise / Contact Sales".
+- O piloto achou 2 bugs do eval, já corrigidos: o booleano `True` vindo do extrator não era reconhecido, e
+  um 404 de modelo gravava o caso em vez de parar a rodada.
+
 ## Próximos passos
-1. O Flávio cola `GEMINI_API_KEY` e `GROQ_API_KEY` no `.env` (local, gitignored).
-2. Piloto: `python -m evals.run --provider all --limit 1`. Confere o `.jsonl` e o `--dry-run` passa a usar
-   a média de tokens observada.
-3. Rodada completa: ~2 semanas no free tier (Groq 70B ≈ 100k tokens/dia) ou tier pago com teto em
-   `config.yaml`. **Antes de 01/12/2026**, quando o `gemini-2.5-flash` passa a rotear pro 3.5 Flash-Lite.
+1. **Decidir o 2º modelo** do eval: Llama 3.3 70B não está acessível no Groq free.
+2. **Conferir produção:** se a chave do Railway também perdeu o 70B, toda mensagem cai na perna
+   Cerebras (procurar `model_not_found` nos logs do Railway).
+3. Rodada completa **antes de 01/12/2026**, quando o `gemini-2.5-flash` passa a rotear pro 3.5 Flash-Lite.
 4. `python -m evals.report --run <id>` → seção "Avaliação" no README com tabela, N, k, data e limitações.
 5. Só então a linha do eval entra no CV.
 

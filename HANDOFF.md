@@ -48,14 +48,21 @@ Doc de estado. Atualizar números e pendências; não narrar sessão.
   (a cadeia segue pra próxima perna; no Mistral os tokens cortados ainda contam na trava). Prova real
   (`results/prova-corte-2026-11-16_groq.jsonl`): o turno 3 usou 1.438 tokens de saída (1.114 de
   raciocínio), passou do teto antigo e chegou inteiro. 7/7 campos, 0 corte.
-- **Achado de comportamento (não corrigido):** na prova, o cliente disse "ninguém me indicou" já no 1º turno,
-  e a Malu perguntou a indicação de novo no turno 2. O gate só aceita a indicação "tratada" se a Malu
-  perguntou ou se `indicado_por` veio preenchido, e "ninguém" vira nulo.
+- **Indicação reperguntada, corrigida em 16/11:** o cliente dizia "ninguém me indicou" no 1º turno e o gate
+  perguntava de novo, porque "ninguém" vira `indicado_por` nulo. `indicacao_respondida_pelo_cliente()`
+  reconhece formas de resposta; pedido de dica ("me indica um hotel?") não conta. Prova real
+  (`results/prova-indicacao-2026-11-16_groq.jsonl`, código `031d668`): fechou no turno 2, não no 3, com 7/7 campos.
+- **Rodada `2026-11-17` (iniciada em 16/11 às 17:40) é descartável:** rodou com o código anterior às duas
+  correções e sem `code_version`. O Gemini parou no caso 3 com **429 de cota DIÁRIA do free tier**, por volta
+  da 20ª chamada do dia. Pelo observado, o free tier do 2.5 Flash fica em ~20 req/dia (a doc manda ver em
+  https://aistudio.google.com/rate-limit). No Groq, uma falha de DNS local quebrou o caso 1: agora a falha
+  de rede ganha retry e, se persistir, para a rodada.
 - O piloto achou 2 bugs do eval, já corrigidos: o booleano `True` vindo do extrator não era reconhecido, e
   um 404 de modelo gravava o caso em vez de parar a rodada.
 - Projeção da rodada completa (N=30, k=1, médias do piloto): Gemini ≈ 1,15M + 72k tokens (US$ 0,53 no
   preço pago); gpt-oss ≈ 1,11M + 233k tokens (US$ 0,31). No free tier do Groq (200k tokens/dia, 8k/min),
-  são **~7 dias**.
+  são **~7 dias**. No Gemini free (~20 req/dia observado), as ~244 chamadas levariam **~12 dias**: não
+  fecha antes de 01/12 sem billing no Gemini (≈ US$ 0,53 pela projeção).
 
 ## Próximos passos
 1. **Conferir o deploy da correção do corte** no Railway (se o auto-deploy da `main` estiver ligado, sobe

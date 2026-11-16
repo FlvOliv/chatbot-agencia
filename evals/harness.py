@@ -38,6 +38,24 @@ class QuotaExhausted(BaseException):
 _DAILY_MARKERS = ("per day", "tokens per day", "tpd", "requests per day", "rpd", "perday")
 
 
+def _is_network(exc: BaseException) -> bool:
+    """Falha de rede do lado do cliente (DNS, conexão recusada). Visto na rodada de
+    16/11: `getaddrinfo failed` no Groq virou 'IA indisponível' e quebraria o caso.
+    Timeout e 5xx NÃO entram aqui: são do provedor e contam em % de erro."""
+    chain: list[BaseException] = []
+    cur: BaseException | None = exc
+    while cur is not None and len(chain) < 6:
+        chain.append(cur)
+        cur = cur.__cause__ or cur.__context__
+    for e in chain:
+        name = type(e).__name__.lower()
+        if "connecterror" in name or "apiconnectionerror" in name or "gaierror" in name:
+            return True
+        if "getaddrinfo" in str(e).lower():
+            return True
+    return False
+
+
 def _is_rate_limit(exc: BaseException) -> bool:
     name = type(exc).__name__.lower()
     text = str(exc).lower()
@@ -174,11 +192,15 @@ async def _traced_ask_provider(
             rec.error = f"{type(exc).__name__}: {str(exc)[:300]}"
             if _is_daily_quota(exc) or _is_fatal_setup(exc):
                 raise QuotaExhausted(rec.error) from exc
-            if _is_rate_limit(exc) and attempt < len(r.retry_backoff_s):
+            if (_is_rate_limit(exc) or _is_network(exc)) and attempt < len(r.retry_backoff_s):
                 await asyncio.sleep(r.retry_backoff_s[attempt])
                 attempt += 1
                 rec.retries = attempt
                 continue
+            if _is_network(exc):
+                # A rede DESTA máquina caiu (DNS, conexão): não é erro do modelo.
+                # Para a rodada; o --run refaz o caso depois.
+                raise QuotaExhausted(f"rede local: {rec.error}") from exc
             raise
         finally:
             _current.reset(token)

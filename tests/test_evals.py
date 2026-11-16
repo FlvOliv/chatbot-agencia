@@ -231,6 +231,34 @@ async def test_harness_retry_em_429_e_para_na_cota_diaria(harness_isolado):
         await h.run_conversation({"id": "t2", "category": "feliz", "turns": ["oi"]}, "550000000003", 0)
 
 
+async def test_harness_retry_em_falha_de_rede_e_para_se_persistir(harness_isolado):
+    """getaddrinfo/conexão (rede local) ganha retry; se persistir, para a rodada
+    em vez de gravar o caso como erro do modelo (rodada de 16/11)."""
+    h = harness_isolado
+    state = {"n": 0}
+
+    class APIConnectionError(Exception):
+        pass
+
+    async def flaky(provider, history, system_prompt, json_mode=False, model=None):  # noqa: ANN001
+        state["n"] += 1
+        if state["n"] == 1:
+            raise APIConnectionError("Connection error.") from OSError("[Errno 11001] getaddrinfo failed")
+        return "Oi! Pra onde vamos?"
+
+    h._real_ask_provider = flaky
+    rec = h.install("groq", "openai/gpt-oss-120b", CFG, PRICE)
+    await h.run_conversation({"id": "t", "category": "feliz", "turns": ["oi"]}, "550000000005", 0)
+    assert rec.calls[0].retries == 1 and rec.calls[0].error is None
+
+    async def down(provider, history, system_prompt, json_mode=False, model=None):  # noqa: ANN001
+        raise APIConnectionError("Connection error.")
+
+    h._real_ask_provider = down
+    with pytest.raises(h.QuotaExhausted, match="rede local"):
+        await h.run_conversation({"id": "t2", "category": "feliz", "turns": ["oi"]}, "550000000006", 0)
+
+
 async def test_harness_para_em_modelo_sem_acesso(harness_isolado):
     """404 model_not_found (visto no piloto de 16/11 com o Llama 3.3 70B no Groq)
     é infra, não resultado: a rodada para em vez de gravar o caso."""

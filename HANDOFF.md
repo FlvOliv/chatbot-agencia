@@ -57,12 +57,17 @@ Doc de estado. Atualizar números e pendências; não narrar sessão.
   da 20ª chamada do dia. Pelo observado, o free tier do 2.5 Flash fica em ~20 req/dia (a doc manda ver em
   https://aistudio.google.com/rate-limit). No Groq, uma falha de DNS local quebrou o caso 1: agora a falha
   de rede ganha retry e, se persistir, para a rodada.
+- **2º braço trocado em 16/11: Gemini 2.5 Flash → `openai/gpt-oss-20b` (Groq).** O Gemini free dá ~20 req/dia,
+  a rodada pede ~180 chamadas por braço (6 por conversa, medido em 4 casos) e o billing pede cartão (o Flávio não
+  vai ativar). Os braços agora são `groq` (120b) e `groq-20b` em `evals/config.yaml` (`provider` + `model`).
+  **Bloqueio atual:** o 20b responde 403 `model_permission_blocked_org`; o Flávio libera em
+  https://console.groq.com/settings/limits. Depois disso: piloto
+  `python -m evals.run --provider groq-20b --run piloto-2026-11-16 --cases feliz-05`.
 - O piloto achou 2 bugs do eval, já corrigidos: o booleano `True` vindo do extrator não era reconhecido, e
   um 404 de modelo gravava o caso em vez de parar a rodada.
-- Projeção da rodada completa (N=30, k=1, médias do piloto): Gemini ≈ 1,15M + 72k tokens (US$ 0,53 no
-  preço pago); gpt-oss ≈ 1,11M + 233k tokens (US$ 0,31). No free tier do Groq (200k tokens/dia, 8k/min),
-  são **~7 dias**. No Gemini free (~20 req/dia observado), as ~244 chamadas levariam **~12 dias**: não
-  fecha antes de 01/12 sem billing no Gemini (≈ US$ 0,53 pela projeção).
+- Projeção da rodada completa (N=30, k=1): ~180 chamadas e ~1M de tokens por braço; 120b ≈ US$ 0,20 no preço
+  pago, 20b ≈ metade. Cada modelo do Groq tem a própria cota (200k tokens/dia, 8k/min): **~7 dias** pros dois,
+  rodando em sequência no mesmo comando.
 
 ## Próximos passos
 1. **Conferir o deploy da correção do corte** no Railway (se o auto-deploy da `main` estiver ligado, sobe
@@ -70,8 +75,8 @@ Doc de estado. Atualizar números e pendências; não narrar sessão.
 2. **Conferir produção:** se a chave do Railway também perdeu o 70B, toda mensagem cai na perna
    Cerebras (procurar `model_not_found` nos logs do Railway).
    Se perdeu, trocar o `GROQ_MODEL` (o `gpt-oss-120b` está no free).
-3. Rodada completa **antes de 01/12/2026**, quando o `gemini-2.5-flash` passa a rotear pro 3.5 Flash-Lite.
-   Fatiar por dia: `python -m evals.run --provider all --run 2026-11-17` e repetir com o mesmo `--run`.
+3. Rodada completa, fatiada por dia: `python -m evals.run --provider all --run 2026-11-17`, repetindo com o
+   mesmo `--run` (roda o 120b até a cota do dia e depois o 20b).
 4. `python -m evals.report --run <id>` → seção "Avaliação" no README com tabela, N, k, data e limitações.
 5. Só então a linha do eval entra no CV.
 

@@ -2,6 +2,7 @@
 # Não chutar: se a fonte oficial não confirmar, `status` diz isso e o relatório
 # carrega a ressalva.
 
+# Fora do eval desde 16/11/2026: free tier de ~20 req/dia e billing pede cartão. Mantido como registro.
 gemini-2.5-flash:
   input_per_m: 0.30
   output_per_m: 2.50          # inclui tokens de "thinking"
@@ -24,6 +25,17 @@ openai/gpt-oss-120b:
     Preço do Groq (cached input US$ 0,075/M, não usado no cálculo). Limites da conta free medidos
     nos cabeçalhos x-ratelimit em 2026-11-16: 8.000 tokens/min e 1.000 requisições/dia.
     A página de rate limits lista 200K tokens/dia.
+
+openai/gpt-oss-20b:
+  input_per_m: 0.075
+  output_per_m: 0.30          # inclui os tokens de raciocínio (vêm dentro de completion_tokens)
+  source: https://console.groq.com/docs/model/openai/gpt-oss-20b
+  checked: 2026-11-16
+  status: oficial
+  notes: >
+    Preço do Groq (cached input US$ 0,037/M, não usado no cálculo). Contexto de 131K,
+    saída máxima de 65K. Limites da tabela de rate limits: 30 req/min, 1.000 req/dia,
+    8K tokens/min, 200K tokens/dia (mesmos do 120b).
 
 # Fora do eval desde 16/11/2026: a conta free do Groq dá 404 model_not_found. Mantido como registro.
 llama-3.3-70b-versatile:

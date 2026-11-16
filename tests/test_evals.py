@@ -294,3 +294,15 @@ async def test_harness_para_em_modelo_sem_acesso(harness_isolado):
     with pytest.raises(h.QuotaExhausted):
         await h.run_conversation({"id": "t3", "category": "feliz", "turns": ["oi"]}, "550000000004", 0)
     assert rec.calls[0].retries == 0
+
+
+def test_bracos_do_config_resolvem_provedor_real_e_preco():
+    """Braço `groq-20b` roda pelo provedor groq; todo modelo do config tem preço oficial."""
+    from evals.run import arm_provider, load_yaml
+
+    cfg, pricing = load_yaml("config.yaml"), load_yaml("pricing.yaml")
+    assert arm_provider(cfg, "groq") == "groq"
+    assert arm_provider(cfg, "groq-20b") == "groq"
+    assert arm_provider({"providers": {"gemini": {"model": "x"}}}, "gemini") == "gemini"
+    for arm, spec in cfg["providers"].items():
+        assert pricing[spec["model"]]["status"] == "oficial", arm

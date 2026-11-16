@@ -5,14 +5,25 @@ seed: 20261116            # ordem dos casos e telefones sintéticos
 k: 1                      # repetições por caso (k=3 quando a cota permitir)
 
 providers:
-  gemini:
-    model: gemini-2.5-flash
+  # Cada braço do eval: nome (vira o sufixo do .jsonl) → provedor real + modelo.
+  # `provider` omitido = o próprio nome do braço.
   groq:
     # Era llama-3.3-70b-versatile: a conta free do Groq dá 404 model_not_found
     # pra ele (16/11/2026). gpt-oss-120b é o mesmo modelo da perna Cerebras de
     # produção. Limite medido nos cabeçalhos: 8.000 tokens/min, 1.000 req/dia.
+    provider: groq
     model: openai/gpt-oss-120b
     sleep_between_turns_s: 60   # 1 turno ≈ 7–9k tokens; o TPM de 8k pede ~1 turno/min
+  groq-20b:
+    # Entrou no lugar do Gemini 2.5 Flash em 16/11/2026: o free tier do Gemini
+    # deu ~20 req/dia (a rodada pede ~180) e ativar billing exige cartão. Mesmo
+    # provedor e mesmo caminho de código do 120b: a comparação isola o tamanho
+    # do modelo (custo × qualidade), sem diferença de temperatura ou SDK.
+    provider: groq
+    model: openai/gpt-oss-20b
+    sleep_between_turns_s: 60
+  # gemini:                     # fora do eval desde 16/11/2026 (ver acima)
+  #   model: gemini-2.5-flash
 
 # Igual ao caminho de produção da Malu. COLETA_STATE_ENABLED liga a extração
 # da ficha a cada turno (Alavanca B). Confirmar no Railway se está ligada lá.

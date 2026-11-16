@@ -1,7 +1,7 @@
 """Runner do eval comparativo da Malu.
 
     python -m evals.run --provider all              # rodada completa (respeita as travas)
-    python -m evals.run --provider groq --limit 1   # piloto
+    python -m evals.run --provider groq-20b --limit 1   # piloto de um braço
     python -m evals.run --provider all --dry-run    # só estima chamadas/tokens/custo
     python -m evals.run --provider groq --run 2026-11-16   # continua uma rodada de outro dia
 
@@ -106,6 +106,11 @@ def synthetic_phone(case_id: str, rep: int) -> str:
     return f"5500{digits:08d}"
 
 
+def arm_provider(cfg: dict[str, Any], arm: str) -> str:
+    """Provedor real de um braço do config (`groq-20b` → `groq`)."""
+    return cfg["providers"][arm].get("provider", arm)
+
+
 def results_path(run: str, provider: str) -> Path:
     return RESULTS / f"{run}_{provider}.jsonl"
 
@@ -149,7 +154,7 @@ def estimate(cases: list[dict[str, Any]], k: int, coleta: bool, price: dict[str,
 def load_prior(provider: str, model: str) -> list[dict]:
     """Linhas já gravadas do MESMO modelo (pra estimar tokens por chamada)."""
     rows: list[dict] = []
-    for p in RESULTS.glob(f"*_{provider}.jsonl"):
+    for p in RESULTS.glob("*.jsonl"):  # o filtro é pelo modelo: braço novo herda o piloto
         rows += [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
     return [r for r in rows if r.get("model") == model]
 
@@ -210,12 +215,14 @@ def build_record(case: dict, provider: str, model: str, rep: int, run: str, turn
 
 
 async def run_provider(provider: str, args: argparse.Namespace, cfg: dict, pricing: dict) -> int:
+    """`provider` aqui é o BRAÇO do config (nome do .jsonl); o provedor real sai de `arm_provider`."""
     from app.config import settings
     from evals import harness, metrics
 
     model = cfg["providers"][provider]["model"]
+    real = arm_provider(cfg, provider)
     price = pricing[model]
-    key = settings.gemini_api_key if provider == "gemini" else settings.groq_api_key
+    key = settings.gemini_api_key if real == "gemini" else settings.groq_api_key
     k = args.k or int(cfg["k"])
     cases = load_cases(int(cfg["seed"]))
     if args.cases:
@@ -247,7 +254,7 @@ async def run_provider(provider: str, args: argparse.Namespace, cfg: dict, prici
         print(f"❌ estimativa acima do teto (US$ {cfg['limits']['max_cost_usd']}) — reduza --limit ou ajuste o config.")
         return 1
 
-    recorder = harness.install(provider, model, cfg, price)
+    recorder = harness.install(real, model, cfg, price)
     out.parent.mkdir(parents=True, exist_ok=True)
     for idx, (case, rep) in enumerate(todo, 1):
         print(f"[{idx}/{len(todo)}] {case['id']} ({case['category']}) rep {rep} …", flush=True)
@@ -262,7 +269,8 @@ async def run_provider(provider: str, args: argparse.Namespace, cfg: dict, prici
             del recorder.calls[n0:]  # caso incompleto não entra; --resume refaz
             print(f"⛔ rodada parada: {exc}\n   caso {case['id']} descartado; rode de novo com --run {args.run} pra continuar.")
             return 2
-        rec = build_record(case, provider, model, rep, args.run, turns)
+        rec = build_record(case, real, model, rep, args.run, turns)
+        rec["arm"] = provider
         rec["cost_usd"] = sum(
             metrics.call_cost_usd(c["prompt_tokens"], c["output_tokens"], price)
             for t in rec["turns"] for c in t["calls"]
@@ -281,7 +289,9 @@ async def run_provider(provider: str, args: argparse.Namespace, cfg: dict, prici
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--provider", choices=["gemini", "groq", "all"], default="all")
+    cfg, pricing = load_yaml("config.yaml"), load_yaml("pricing.yaml")
+    ap.add_argument("--provider", choices=[*cfg["providers"], "all"], default="all",
+                    help="braço do config.yaml, ou all")
     ap.add_argument("--run", default=date.today().isoformat(), help="id da rodada (padrão: data de hoje)")
     ap.add_argument("--cases", help="ids separados por vírgula")
     ap.add_argument("--category")
@@ -291,8 +301,7 @@ def main() -> int:
     args = ap.parse_args()
 
     os.chdir(ROOT)  # o Settings lê o .env da raiz
-    cfg, pricing = load_yaml("config.yaml"), load_yaml("pricing.yaml")
-    providers = ["gemini", "groq"] if args.provider == "all" else [args.provider]
+    providers = list(cfg["providers"]) if args.provider == "all" else [args.provider]
     t0 = time.time()
     code = 0
     for p in providers:

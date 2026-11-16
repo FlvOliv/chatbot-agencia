@@ -1,4 +1,4 @@
-# Eval comparativo da Malu: Gemini 2.5 Flash × gpt-oss-120b (Groq)
+# Eval comparativo da Malu: gpt-oss-120b × gpt-oss-20b (Groq)
 
 **Estado (16/11/2026): infraestrutura pronta e piloto feito; rodada completa ainda não feita.** Não há
 número publicado: um eval pela metade não vira tabela. `report.py` se recusa a gravar o `summary.md`
@@ -9,6 +9,14 @@ da cadeia de produção. Em 16/11/2026 a conta free do Groq respondeu `404 model
 página oficial passou a listá-lo como "Enterprise / Contact Sales". O `openai/gpt-oss-120b` está
 disponível no free tier e é o mesmo modelo da perna Cerebras de produção, que assume quando o
 Groq falha.
+
+**Por que gpt-oss-20b e não Gemini 2.5 Flash:** o 2º braço era o Gemini, a última perna da cadeia de
+produção. No free tier ele parou com 429 de cota diária por volta da 20ª chamada (16/11/2026), e a
+rodada pede ~180 chamadas por braço (6 por conversa, medido). Seriam 9 ou 10 dias sem falhar nenhum,
+colado no 01/12/2026, quando o Google passa a rotear o `gemini-2.5-flash` pro 3.5 Flash-Lite. Ativar
+billing exige cartão. O `openai/gpt-oss-20b` roda no mesmo provedor e pelo mesmo caminho de código do
+120b, então a comparação isola uma pergunta só: **o modelo menor, pela metade do preço, segura a
+qualidade do briefing?** O piloto do Gemini (`results/piloto-2026-11-16_gemini.jsonl`) fica como registro.
 
 ## O que mede
 
@@ -26,7 +34,7 @@ o Postgres é falso. Nenhum código de produção muda; o provedor é forçado s
 | Turnos até o briefing | Média e mediana do turno em que o lead foi finalizado |
 | Guardrails | % de pass da regra objetiva de cada caso (`guard` no dataset) |
 | Fecho indevido | Casos que não deviam fechar e fecharam |
-| Custo por conversa | Tokens de entrada e saída (thinking do Gemini incluso) × `pricing.yaml` |
+| Custo por conversa | Tokens de entrada e saída (raciocínio incluso) × `pricing.yaml` |
 | Latência | p50/p95 do round-trip de cada chamada de LLM (só a API, sem log nem sleep) e soma por conversa |
 | Erro | % de chamadas que falharam depois dos retries; retries por 429 contados à parte |
 | Variação | Desvio-padrão do acerto entre as k repetições de um mesmo caso |
@@ -51,9 +59,9 @@ rodando com `from_audio=True`. Os turnos do cliente são roteirizados: não reag
 
 ```bash
 pip install -r requirements.txt -r evals/requirements.txt
-# .env com GEMINI_API_KEY e GROQ_API_KEY (os WA_* podem ser fictícios)
+# .env com GROQ_API_KEY (os WA_* podem ser fictícios); os braços estão em config.yaml
 python -m evals.run --provider all --dry-run     # estimativa de chamadas, tokens e custo
-python -m evals.run --provider groq --limit 1    # piloto
+python -m evals.run --provider groq-20b --limit 1    # piloto de um braço
 python -m evals.run --provider all               # rodada (retoma de onde parou)
 python -m evals.run --provider all --run 2026-11-16   # continua a rodada de outro dia
 python -m evals.report --run 2026-11-16          # gera results/summary.md (só com a rodada completa)
@@ -76,14 +84,11 @@ conta free do `gpt-oss-120b` tem **8.000 tokens/min** e 1.000 requisições/dia 
 
 ## Limitações conhecidas (vão pro relatório)
 - Dados sintéticos e N pequeno; turnos roteirizados.
-- **Os dois caminhos de produção não usam a mesma configuração.** O Groq roda com temperatura 0.2 no chat
-  (0.0 na extração) e `max_tokens` 1024/3000. O Gemini roda com o padrão do SDK `google.generativeai`:
-  sem temperatura explícita, sem teto de saída e com thinking ligado no 2.5 Flash. O eval mede o caminho
-  **como está em produção**, sem igualar. O gpt-oss-120b é modelo de raciocínio: esse raciocínio entra
-  em `completion_tokens` e disputa o teto de 1024 tokens do chat com a resposta.
+- Os dois braços usam o mesmo caminho de produção (`_ask_malu_groq`): temperatura 0.2 no chat, 0.0 na
+  extração; teto de saída de 4096 tokens no chat pra modelo de raciocínio (`gpt-oss`) e 3000 na extração.
+  O raciocínio entra em `completion_tokens` e é cobrado como saída.
 - O gpt-oss-120b no Groq não é exatamente a perna de produção, que roda o mesmo modelo na Cerebras
   (outro hardware, outra latência). Qualidade e tokens devem ser próximos; a latência não se transfere.
 - Preço na data da consulta (`pricing.yaml`).
-- O `gemini-2.5-flash` está depreciado: a partir de 01/12/2026 o Google roteia as chamadas para o
-  Gemini 3.5 Flash-Lite. Uma rodada depois dessa data mede outro modelo.
+- A última perna de produção (Gemini) fica fora do eval: free tier curto demais (ver acima).
 - `COLETA_STATE_ENABLED=true` no config (uma extração extra por turno). Confirmar se produção está igual.

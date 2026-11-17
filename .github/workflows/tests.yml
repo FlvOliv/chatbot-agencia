@@ -1,0 +1,43 @@
+# Roda a suíte pytest (fakeredis + provedores de IA mockados) a cada push e PR.
+# Nenhum segredo é necessário: tests/conftest.py define variáveis dummy antes
+# de importar app.config, e Cerebras/Mistral ficam desligados. O ffmpeg não é
+# instalado porque tests/test_audioconv.py mocka o subprocesso.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            evals/requirements.txt
+
+      - name: Instalar dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r evals/requirements.txt
+
+      - name: Rodar testes
+        env:
+          TZ: America/Sao_Paulo
+          PYTHONUTF8: "1"
+        run: pytest -q

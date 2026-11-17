@@ -55,6 +55,9 @@ com DDD 00, que não existe). Categorias: `feliz` (8), `incompleto` (4), `ambigu
 `pede_preco` (4), `prompt_injection` (4), `fora_de_escopo` (3) e `audio_transcrito` (3), este
 rodando com `from_audio=True`. Os turnos do cliente são roteirizados: não reagem ao que a Malu pergunta.
 
+Publicado no Hugging Face (CC-BY-4.0), com card descrevendo campos, categorias e pontuação:
+[Flaviortw/malu-briefing-eval-ptbr](https://huggingface.co/datasets/Flaviortw/malu-briefing-eval-ptbr).
+
 ## Como rodar
 
 ```bash

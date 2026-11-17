@@ -23,13 +23,14 @@ Atende clientes via WhatsApp, coleta informações de viagem e gera um briefing 
 Este repositório é um **fork** de [`gustavomarcelloprf/chatbot-agencia`](https://github.com/gustavomarcelloprf/chatbot-agencia). O histórico de commits fica preservado aqui como registro de quem fez o quê.
 
 - **Gustavo Marcello** (10 commits, 28/05 a 05/06/2026): versão 1 do bot (webhook, roteador Gemini/Groq, prompt v4), lembretes via Celery, suporte inicial a áudio, scripts de deploy no Railway e a primeira versão do painel de insights.
-- **Flávio Henrique Oliveira** (51 commits, 01/06 a 06/07/2026), a partir da v1:
+- **Flávio Henrique Oliveira** (67 commits, 01/06 a 16/11/2026), a partir da v1:
   - fallback automático entre provedores e, depois, a cadeia de 4 provedores com piso pago e trava de orçamento;
   - extração do briefing em JSON, gate de completude, anti-loop, anti-amnésia do histórico e ficha de coleta persistida;
   - prompt da v4.4 até a v5.0, calibrado com o checklist real da agência;
   - transcrição de áudio (Whisper via Groq), troca do Celery por agendamento em Postgres com cron, e multi-tenant;
   - inbox de atendimento humano, login, tags e redesign do painel;
-  - suíte de conformidade da Malu, que roda o pipeline real com IA real e checagens automáticas (`scripts/conformance_probe.py`), e 244 das 314 funções de teste (contagem por `git blame`).
+  - suíte de conformidade da Malu, que roda o pipeline real com IA real e checagens automáticas (`scripts/conformance_probe.py`), e 277 das 347 funções de teste (contagem por `git blame`);
+  - framework de avaliação comparativa de LLMs (`evals/`): 30 conversas sintéticas em 7 categorias rodando pelo pipeline real, com acerto por campo do briefing, guardrails, tokens, custo e latência. Achou e corrigiu 2 bugs de produção (resposta de modelo de raciocínio cortada no teto de tokens; pergunta de indicação repetida). Rodada completa em andamento, ver [`evals/README.md`](evals/README.md).
 
 ---
 
@@ -151,7 +152,7 @@ Copie a URL `https://XXXX.ngrok-free.dev` — você vai colar no Meta Developer 
 pytest tests/ -v
 ```
 
-**392 testes** coletados pelo pytest (314 funções, algumas parametrizadas), todos com **fakeredis** e mocks dos providers. Não dependem de serviço externo. No Windows, o `tzdata` do `requirements.txt` fornece o fuso `America/Sao_Paulo`.
+**453 testes** coletados pelo pytest (347 funções, algumas parametrizadas), todos com **fakeredis** e mocks dos providers. Não dependem de serviço externo. No Windows, o `tzdata` do `requirements.txt` fornece o fuso `America/Sao_Paulo`.
 
 ### Suíte de conformidade (IA real, sem WhatsApp)
 
@@ -217,7 +218,7 @@ chatbot-agencia/
 │   ├── reports.py           # resumo diário de leads (disparado pelo cron)
 │   └── api/tick.py          # POST /internal/tick (cron) → follow-ups + resumo
 ├── alembic/                 # Migrations
-├── tests/                   # pytest (392 testes)
+├── tests/                   # pytest (453 testes)
 ├── scripts/
 │   ├── seed_test.py         # Simula conversa completa de 8 turnos
 │   └── check_setup.py       # Valida ambiente (env, Redis, Postgres, IA)

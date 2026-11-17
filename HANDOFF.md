@@ -2,7 +2,7 @@
 
 Doc de estado. Atualizar números e pendências; não narrar sessão.
 
-## Estado (16/11/2026)
+## Estado (17/11/2026)
 - Repo restaurado no PC novo a partir do fork público (`main@e17e079`, 06/07/2026). O que não tinha
   sido enviado pro GitHub do PC antigo **não está aqui** (o `.env` inclusive).
 - Suíte: **392 testes** de produção no clone original; hoje **453** passando no Windows/Python 3.12
@@ -10,6 +10,13 @@ Doc de estado. Atualizar números e pendências; não narrar sessão.
 - Prompt em produção: `app/prompts/malu_v4.md`, conteúdo **v5.0**.
 - `docs/origem-autoria` (README com "Origem e autoria" + `tzdata`) e `feat/evals` (infraestrutura do
   eval) mergeadas na `main` e publicadas no GitHub em 16/11/2026. Nenhum código de `app/` mudou.
+- **CI (17/11/2026):** `.github/workflows/tests.yml` roda o pytest em todo push na `main` e em PR (Ubuntu,
+  Python 3.12, sem segredo; o ffmpeg não é instalado porque `test_audioconv` mocka o subprocesso). 1º run
+  verde: https://github.com/FlvOliv/chatbot-agencia/actions/runs/44013472474 (453 passando). Badge no README.
+- **Dataset no Hugging Face (17/11/2026):** https://huggingface.co/datasets/Flaviortw/malu-briefing-eval-ptbr
+  (público, CC-BY-4.0). Só `casos.jsonl` + card como `README.md`; sem `results/` nem `app/prompts`. O card
+  diz "Resultados: ainda não publicados". A conta do HF é `Flaviortw` (não `FlvOliv`), e o comando `hf` do
+  PATH é o Higgsfield: o do HF é `C:\Users\conta\AppData\Local\Programs\Python\Python312\Scripts\hf.exe`.
 
 ## Pendências do contexto do eval (respondidas lendo o código)
 1. **Fallback automático.** `app/ai.py::route_and_ask` percorre `_build_attempts()`: groq/llama-3.3-70b
@@ -85,7 +92,7 @@ Doc de estado. Atualizar números e pendências; não narrar sessão.
 3. Rodada completa, fatiada por dia: `python -m evals.run --provider all --run 2026-11-17`, repetindo com o
    mesmo `--run` (roda o 120b até a cota do dia e depois o 20b).
 4. `python -m evals.report --run <id>` → seção "Avaliação" no README com tabela, N, k, data e limitações.
-5. Só então a linha do eval entra no CV.
+5. Só então a linha do eval entra no CV, e o card do HF ganha a seção de resultados (mesma tabela).
 
 ## Perguntas abertas
 - O deploy do Railway vinha do GitHub ou de `railway up` no PC antigo? Se foi pela CLI, produção pode

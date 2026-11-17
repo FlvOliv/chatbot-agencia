@@ -23,7 +23,7 @@ Atende clientes via WhatsApp, coleta informações de viagem e gera um briefing 
 Este repositório é um **fork** de [`gustavomarcelloprf/chatbot-agencia`](https://github.com/gustavomarcelloprf/chatbot-agencia). O histórico de commits fica preservado aqui como registro de quem fez o quê.
 
 - **Gustavo Marcello** (10 commits, 28/05 a 05/06/2026): versão 1 do bot (webhook, roteador Gemini/Groq, prompt v4), lembretes via Celery, suporte inicial a áudio, scripts de deploy no Railway e a primeira versão do painel de insights.
-- **Flávio Henrique Oliveira** (67 commits, 01/06 a 16/11/2026), a partir da v1:
+- **Flávio Henrique Oliveira da Silva** (67 commits, 01/06 a 16/11/2026), a partir da v1:
   - fallback automático entre provedores e, depois, a cadeia de 4 provedores com piso pago e trava de orçamento;
   - extração do briefing em JSON, gate de completude, anti-loop, anti-amnésia do histórico e ficha de coleta persistida;
   - prompt da v4.4 até a v5.0, calibrado com o checklist real da agência;

@@ -1,5 +1,7 @@
 # Malu Bot — Lu Milhas & Viagens
 
+[![tests](https://github.com/FlvOliv/chatbot-agencia/actions/workflows/tests.yml/badge.svg)](https://github.com/FlvOliv/chatbot-agencia/actions/workflows/tests.yml)
+
 Assistente virtual de atendimento nível 1 da agência **Lu Milhas & Viagens**.
 Atende clientes via WhatsApp, coleta informações de viagem e gera um briefing estruturado para a Lu (atendente humana) fechar a cotação.
 
@@ -153,6 +155,8 @@ pytest tests/ -v
 ```
 
 **453 testes** coletados pelo pytest (347 funções, algumas parametrizadas), todos com **fakeredis** e mocks dos providers. Não dependem de serviço externo. No Windows, o `tzdata` do `requirements.txt` fornece o fuso `America/Sao_Paulo`.
+
+**CI (GitHub Actions):** `.github/workflows/tests.yml` roda a suíte inteira a cada push na `main` e em todo PR (Ubuntu, Python 3.12, sem segredo nenhum).
 
 ### Suíte de conformidade (IA real, sem WhatsApp)
 
